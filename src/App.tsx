@@ -53,9 +53,16 @@ function VoicingStack({ stacks }: { stacks: string[] }) {
     <div className="voicing-stack">
       {stacks.map((stack, index) => (
         <div className="note-line" key={`${stack}-${index}`}>
-          {stack.split(' ').map((note, noteIndex) => (
-            <span className={index === stacks.length - 1 && noteIndex === stack.split(' ').length - 1 ? 'top-degree' : ''} key={`${note}-${noteIndex}`}>{note}</span>
-          ))}
+          {stack.split(' ').map((note, noteIndex) => {
+            const hasAccidental = note.startsWith('♭') || note.startsWith('♯')
+            const isTopDegree = index === stacks.length - 1 && noteIndex === stack.split(' ').length - 1
+            return (
+              <span className={`degree ${isTopDegree ? 'top-degree' : ''}`} key={`${note}-${noteIndex}`}>
+                <span className="accidental">{hasAccidental ? note[0] : ''}</span>
+                <span>{hasAccidental ? note.slice(1) : note}</span>
+              </span>
+            )
+          })}
         </div>
       ))}
     </div>
