@@ -38,6 +38,4 @@ mistakes are caught during the build.
 ## Included interactions
 
 - Filter by chord family or any of the 12 chromatic top notes
-- Search chord names, techniques, families, and scale degrees
 - Browse the library in a compact matrix modeled on the original notes
-- Open any shape for a focused view or choose a random practice prompt
