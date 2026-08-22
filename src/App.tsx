@@ -117,7 +117,7 @@ function App() {
           <section className="page-heading">
             <div>
               <p className="eyebrow">Personal voicing library</p>
-              <h1>{activeFamily === 'all' ? 'Chords by top note' : `${familyFor(activeFamily).label} voicings`}</h1>
+              <h1>Chords by top note</h1>
               <p className="lede">Find the shape you need by the note you want to sing on top.</p>
             </div>
             <div className="summary-card">
