@@ -76,7 +76,7 @@ function Matrix({ shapes }: { shapes: ChordShape[] }) {
             const family = familyFor(shape.family)
             return (
               <tr key={shape.id}>
-                <th><span className={`family-mark ${shape.family}`} />{family.shortLabel}</th>
+                <th className={`family-quality ${shape.family}`}>{family.shortLabel}</th>
                 <th><strong>{shape.name}</strong><small>{shape.technique}</small></th>
                 {topNotes.map((note) => {
                   const voicing = shape.voicings.find((item) => item.topNote === note)
