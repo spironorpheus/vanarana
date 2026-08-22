@@ -197,7 +197,7 @@ export const chordShapes: ChordShape[] = [
     id: '13-sharp11-upper', family: 'dominant', name: '13♯11', technique: 'Upper structure', status: 'learning',
     voicings: [
       { topNote: '2', stacks: ['1 3 ♭7', '♯4 6 2'] },
-      { topNote: '4', stacks: ['1 3'] },
+      { topNote: '♭5', stacks: ['1 3 ♭7', '6 2 ♯4'] },
       { topNote: '5', stacks: ['1 3 ♭7', '2 ♯4 6'] },
     ],
   },
