@@ -26,14 +26,15 @@ entry to `chordShapes`:
   technique: 'Drop 2',
   status: 'learning',
   voicings: [
-    { topNote: '2', stacks: ['1 ♭7', '♭3 5 2'] },
+    { stacks: ['1 ♭7', '♭3 5 2'] },
   ],
 }
 ```
 
 Each item in `stacks` is shown on its own line, preserving the hand/staff
-grouping from the original notes. `topNote`, `family`, and `status` are typed, so
-mistakes are caught during the build.
+grouping from the original notes. The last note in the final stack determines
+the top-note column automatically. Enharmonic degrees such as `♯4` and `♭5` are
+normalized to the same column.
 
 ## Included interactions
 

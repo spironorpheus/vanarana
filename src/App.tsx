@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   chordShapes,
   families,
+  getTopNote,
   topNotes,
   type ChordShape,
   type FamilyId,
@@ -90,7 +91,7 @@ function Matrix({ shapes }: { shapes: ChordShape[] }) {
                 <th className={`family-quality ${shape.family}`}>{family.shortLabel}</th>
                 <th><strong>{shape.name}</strong><small>{shape.technique}</small></th>
                 {topNotes.map((note) => {
-                  const voicing = shape.voicings.find((item) => item.topNote === note)
+                  const voicing = shape.voicings.find((item) => getTopNote(item) === note)
                   return <td className={voicing ? 'has-voicing' : ''} key={note}>{voicing ? <VoicingStack stacks={voicing.stacks} /> : <span className="empty-cell">·</span>}</td>
                 })}
               </tr>
@@ -110,7 +111,7 @@ function App() {
   const filteredShapes = useMemo(() => {
     return chordShapes.filter((shape) => {
       const matchesFamily = activeFamily === 'all' || shape.family === activeFamily
-      const matchesTopNote = activeTopNote === 'all' || shape.voicings.some((voicing) => voicing.topNote === activeTopNote)
+      const matchesTopNote = activeTopNote === 'all' || shape.voicings.some((voicing) => getTopNote(voicing) === activeTopNote)
       const matchesTechnique = activeTechnique === 'all' || shape.technique === activeTechnique
       return matchesFamily && matchesTopNote && matchesTechnique
     })
