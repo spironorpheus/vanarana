@@ -184,8 +184,9 @@ export const chordShapes: ChordShape[] = [
     id: 'm7b5-drop2', family: 'half-diminished', name: 'm7♭5', technique: 'Drop 2', status: 'learning',
     voicings: [
       { stacks: ['1 ♭7', '♭3 ♭5 2'] },
+      { stacks: ['1 ♭7', '♭3 ♭5 ♭2'] },
       { stacks: ['1 ♭3', '♭5 ♭7 4'] },
-      { stacks: ['1 ♭3', '♭7'] },
+      { stacks: ['1 ♭3', '♭7 2 ♭5'] },
     ],
   },
   {
