@@ -8,21 +8,43 @@ import {
   type TopNote,
 } from './data/chords'
 
-type IconName = 'menu'
+const familyFor = (id: FamilyId) => families.find((family) => family.id === id)!
 
-function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
-  const paths: Record<IconName, React.ReactNode> = {
-    menu: <path d="M4 7h16M4 12h16M4 17h16"/>,
-  }
-
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {paths[name]}
-    </svg>
-  )
+type FilterOption<T extends string> = {
+  value: T
+  label: string
 }
 
-const familyFor = (id: FamilyId) => families.find((family) => family.id === id)!
+function FilterRow<T extends string>({
+  label,
+  hint,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  hint: string
+  value: T
+  options: FilterOption<T>[]
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="filter-row">
+      <div className="filter-heading"><span>{label}</span><small>{hint}</small></div>
+      <div className="filter-options">
+        {options.map((option) => (
+          <button
+            className={value === option.value ? 'active' : ''}
+            key={option.value}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function VoicingStack({ stacks }: { stacks: string[] }) {
   return (
@@ -72,7 +94,6 @@ function Matrix({ shapes }: { shapes: ChordShape[] }) {
 function App() {
   const [activeFamily, setActiveFamily] = useState<'all' | FamilyId>('all')
   const [activeTopNote, setActiveTopNote] = useState<'all' | TopNote>('all')
-  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const filteredShapes = useMemo(() => {
     return chordShapes.filter((shape) => {
@@ -85,36 +106,9 @@ function App() {
   const arrangementCount = chordShapes.reduce((total, shape) => total + shape.voicings.length, 0)
   const filteredArrangementCount = filteredShapes.reduce((total, shape) => total + (activeTopNote === 'all' ? shape.voicings.length : 1), 0)
 
-  const chooseFamily = (family: 'all' | FamilyId) => {
-    setActiveFamily(family)
-    setSidebarOpen(false)
-  }
-
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="brand">
-          <div className="brand-mark"><span /><span /><span /><span /></div>
-          <div><strong>Chord Atlas</strong><small>Voicing notebook</small></div>
-        </div>
-        <div className="nav-section">
-          <div className="nav-label">Families</div>
-          <button className={activeFamily === 'all' ? 'active' : ''} onClick={() => chooseFamily('all')}><span className="family-mark all" />All chords<span className="nav-count">{chordShapes.length}</span></button>
-          {families.map((family) => (
-            <button className={activeFamily === family.id ? 'active' : ''} key={family.id} onClick={() => chooseFamily(family.id)}>
-              <span className={`family-mark ${family.id}`} />{family.label}<span className="nav-count">{chordShapes.filter((shape) => shape.family === family.id).length}</span>
-            </button>
-          ))}
-        </div>
-      </aside>
-      {sidebarOpen && <button className="sidebar-scrim" aria-label="Close menu" onClick={() => setSidebarOpen(false)} />}
-
       <main>
-        <header className="mobile-bar">
-          <button className="menu-button" aria-label="Open menu" onClick={() => setSidebarOpen(true)}><Icon name="menu" /></button>
-          <span>Chord Atlas</span>
-        </header>
-
         <div className="content">
           <section className="page-heading">
             <div>
@@ -130,11 +124,26 @@ function App() {
           </section>
 
           <section className="filter-panel">
-            <div className="filter-heading"><span>Top note</span><small>Scale degree</small></div>
-            <div className="note-filters">
-              <button className={activeTopNote === 'all' ? 'active' : ''} onClick={() => setActiveTopNote('all')}>All</button>
-              {topNotes.map((note) => <button className={activeTopNote === note ? 'active' : ''} key={note} onClick={() => setActiveTopNote(note)}>{note}</button>)}
-            </div>
+            <FilterRow
+              label="Top note"
+              hint="Scale degree"
+              value={activeTopNote}
+              options={[
+                { value: 'all', label: 'All' },
+                ...topNotes.map((note) => ({ value: note, label: note })),
+              ]}
+              onChange={setActiveTopNote}
+            />
+            <FilterRow
+              label="Chord family"
+              hint="Harmony"
+              value={activeFamily}
+              options={[
+                { value: 'all', label: 'All' },
+                ...families.map((family) => ({ value: family.id, label: family.label })),
+              ]}
+              onChange={setActiveFamily}
+            />
           </section>
 
           <div className="result-toolbar">
