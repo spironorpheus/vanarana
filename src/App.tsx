@@ -21,12 +21,14 @@ function FilterRow<T extends string>({
   label,
   hint,
   value,
+  allValue,
   options,
   onChange,
 }: {
   label: string
   hint: string
   value: T
+  allValue: T
   options: FilterOption<T>[]
   onChange: (value: T) => void
 }) {
@@ -38,7 +40,7 @@ function FilterRow<T extends string>({
           <button
             className={value === option.value ? 'active' : ''}
             key={option.value}
-            onClick={() => onChange(option.value)}
+            onClick={() => onChange(value === option.value ? allValue : option.value)}
           >
             {option.label}
           </button>
@@ -139,6 +141,7 @@ function App() {
               label="Top note"
               hint="Scale degree"
               value={activeTopNote}
+              allValue="all"
               options={[
                 { value: 'all', label: 'All' },
                 ...topNotes.map((note) => ({ value: note, label: note })),
@@ -149,6 +152,7 @@ function App() {
               label="Chord family"
               hint="Harmony"
               value={activeFamily}
+              allValue="all"
               options={[
                 { value: 'all', label: 'All' },
                 ...families.map((family) => ({ value: family.id, label: family.label })),
@@ -159,6 +163,7 @@ function App() {
               label="Voicing type"
               hint="Structure"
               value={activeTechnique}
+              allValue="all"
               options={[
                 { value: 'all', label: 'All' },
                 ...techniques.map((technique) => ({ value: technique, label: technique })),
