@@ -9,6 +9,8 @@ import {
 } from './data/chords'
 
 const familyFor = (id: FamilyId) => families.find((family) => family.id === id)!
+const techniques = ['Drop 2', 'Upper structure', 'Open'] as const
+type Technique = (typeof techniques)[number]
 
 type FilterOption<T extends string> = {
   value: T
@@ -94,14 +96,16 @@ function Matrix({ shapes }: { shapes: ChordShape[] }) {
 function App() {
   const [activeFamily, setActiveFamily] = useState<'all' | FamilyId>('all')
   const [activeTopNote, setActiveTopNote] = useState<'all' | TopNote>('all')
+  const [activeTechnique, setActiveTechnique] = useState<'all' | Technique>('all')
 
   const filteredShapes = useMemo(() => {
     return chordShapes.filter((shape) => {
       const matchesFamily = activeFamily === 'all' || shape.family === activeFamily
       const matchesTopNote = activeTopNote === 'all' || shape.voicings.some((voicing) => voicing.topNote === activeTopNote)
-      return matchesFamily && matchesTopNote
+      const matchesTechnique = activeTechnique === 'all' || shape.technique === activeTechnique
+      return matchesFamily && matchesTopNote && matchesTechnique
     })
-  }, [activeFamily, activeTopNote])
+  }, [activeFamily, activeTechnique, activeTopNote])
 
   const arrangementCount = chordShapes.reduce((total, shape) => total + shape.voicings.length, 0)
   const filteredArrangementCount = filteredShapes.reduce((total, shape) => total + (activeTopNote === 'all' ? shape.voicings.length : 1), 0)
@@ -144,6 +148,16 @@ function App() {
               ]}
               onChange={setActiveFamily}
             />
+            <FilterRow
+              label="Voicing type"
+              hint="Structure"
+              value={activeTechnique}
+              options={[
+                { value: 'all', label: 'All' },
+                ...techniques.map((technique) => ({ value: technique, label: technique })),
+              ]}
+              onChange={setActiveTechnique}
+            />
           </section>
 
           <div className="result-toolbar">
@@ -153,7 +167,7 @@ function App() {
           {filteredShapes.length ? (
             <Matrix shapes={filteredShapes} />
           ) : (
-            <div className="empty-state"><div>♪</div><h2>No voicings found</h2><p>Try another top note or family.</p><button onClick={() => { setActiveTopNote('all'); setActiveFamily('all') }}>Clear filters</button></div>
+            <div className="empty-state"><div>♪</div><h2>No voicings found</h2><p>Try another top note, family, or voicing type.</p><button onClick={() => { setActiveTopNote('all'); setActiveFamily('all'); setActiveTechnique('all') }}>Clear filters</button></div>
           )}
         </div>
       </main>

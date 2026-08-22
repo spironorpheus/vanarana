@@ -37,5 +37,5 @@ mistakes are caught during the build.
 
 ## Included interactions
 
-- Filter by chord family or any of the 12 chromatic top notes
+- Filter by chord family, voicing type, or any of the 12 chromatic top notes
 - Browse the library in a compact matrix modeled on the original notes
