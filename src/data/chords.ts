@@ -181,13 +181,19 @@ export const chordShapes: ChordShape[] = [
     ],
   },
   {
-    id: 'm7b5-drop2', family: 'half-diminished', name: 'm7♭5', technique: 'Drop 2', status: 'learning',
+    id: 'm7b5-9-drop2', family: 'half-diminished', name: 'm7♭5 9', technique: 'Drop 2', status: 'learning',
     voicings: [
       { stacks: ['1 ♭7', '♭3 ♭5 2'] },
-      { stacks: ['1 ♭7', '♭3 ♭5 ♭2'] },
-      { stacks: ['1 ♭3', '♭5 ♭7 4'] },
       { stacks: ['1 ♭3', '♭7 2 ♭5'] },
     ],
+  },
+  {
+    id: 'm7b5-b9-drop2', family: 'half-diminished', name: 'm7♭5 ♭9', technique: 'Drop 2', status: 'learning',
+    voicings: [{ stacks: ['1 ♭7', '♭3 ♭5 ♭2'] }],
+  },
+  {
+    id: 'm11b5-drop2', family: 'half-diminished', name: 'm11♭5', technique: 'Drop 2', status: 'learning',
+    voicings: [{ stacks: ['1 ♭3', '♭5 ♭7 4'] }],
   },
   {
     id: '13b9-drop2', family: 'dominant', name: '13♭9', technique: 'Drop 2', status: 'learning',
