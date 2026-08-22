@@ -10,26 +10,20 @@ import {
 
 type IconName =
   | 'book'
-  | 'grid'
-  | 'list'
   | 'menu'
   | 'search'
   | 'shuffle'
   | 'x'
   | 'code'
-  | 'arrow'
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, React.ReactNode> = {
     book: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5z"/></>,
-    grid: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
-    list: <><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3" cy="6" r=".5" fill="currentColor"/><circle cx="3" cy="12" r=".5" fill="currentColor"/><circle cx="3" cy="18" r=".5" fill="currentColor"/></>,
     menu: <path d="M4 7h16M4 12h16M4 17h16"/>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     shuffle: <><path d="M3 7h3c4 0 6 10 10 10h5"/><path d="m18 14 3 3-3 3M3 17h3c1.4 0 2.5-1.2 3.5-2.8M14.5 8.9C15 7.8 15.7 7 17 7h4"/><path d="m18 4 3 3-3 3"/></>,
     x: <path d="m6 6 12 12M18 6 6 18"/>,
     code: <><path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></>,
-    arrow: <><path d="M5 12h14M14 7l5 5-5 5"/></>,
   }
 
   return (
@@ -52,34 +46,6 @@ function VoicingStack({ stacks }: { stacks: string[] }) {
         </div>
       ))}
     </div>
-  )
-}
-
-function ChordCard({ shape, visibleVoicings, onOpen }: { shape: ChordShape; visibleVoicings: ChordShape['voicings']; onOpen: () => void }) {
-  const family = familyFor(shape.family)
-  return (
-    <button className="chord-card" onClick={onOpen} type="button">
-      <div className="card-header">
-        <div>
-          <div className="card-family">{family.shortLabel}</div>
-          <h3>{shape.name}</h3>
-        </div>
-        <span className={`status-dot ${shape.status}`} title={shape.status} />
-      </div>
-      <div className="technique-tag">{shape.technique}</div>
-      <div className="card-voicings">
-        {visibleVoicings.map((voicing) => (
-          <div className="voicing" key={voicing.topNote}>
-            <span className="top-note" title={`Top note ${voicing.topNote}`}>{voicing.topNote}</span>
-            <VoicingStack stacks={voicing.stacks} />
-          </div>
-        ))}
-      </div>
-      <div className="card-footer">
-        <span>{shape.voicings.length} {shape.voicings.length === 1 ? 'arrangement' : 'arrangements'}</span>
-        <span className="open-label">Open <Icon name="arrow" size={15} /></span>
-      </div>
-    </button>
   )
 }
 
@@ -141,7 +107,6 @@ function App() {
   const [activeFamily, setActiveFamily] = useState<'all' | FamilyId>('all')
   const [activeTopNote, setActiveTopNote] = useState<'all' | TopNote>('all')
   const [query, setQuery] = useState('')
-  const [view, setView] = useState<'cards' | 'matrix'>('cards')
   const [selectedShape, setSelectedShape] = useState<ChordShape | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const searchInput = useRef<HTMLInputElement>(null)
@@ -247,25 +212,10 @@ function App() {
 
           <div className="result-toolbar">
             <div><strong>{filteredShapes.length} shapes</strong><span> · {filteredArrangementCount} arrangements</span></div>
-            <div className="view-switch" aria-label="View style">
-              <button className={view === 'cards' ? 'active' : ''} onClick={() => setView('cards')} aria-label="Card view"><Icon name="grid" /></button>
-              <button className={view === 'matrix' ? 'active' : ''} onClick={() => setView('matrix')} aria-label="Matrix view"><Icon name="list" /></button>
-            </div>
           </div>
 
           {filteredShapes.length ? (
-            view === 'cards' ? (
-              <div className="chord-grid">
-                {filteredShapes.map((shape) => (
-                  <ChordCard
-                    key={shape.id}
-                    shape={shape}
-                    visibleVoicings={activeTopNote === 'all' ? shape.voicings : shape.voicings.filter((voicing) => voicing.topNote === activeTopNote)}
-                    onOpen={() => setSelectedShape(shape)}
-                  />
-                ))}
-              </div>
-            ) : <Matrix shapes={filteredShapes} />
+            <Matrix shapes={filteredShapes} />
           ) : (
             <div className="empty-state"><div>♪</div><h2>No voicings found</h2><p>Try another top note, family, or search.</p><button onClick={() => { setQuery(''); setActiveTopNote('all'); setActiveFamily('all') }}>Clear filters</button></div>
           )}
