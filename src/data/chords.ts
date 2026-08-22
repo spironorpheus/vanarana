@@ -27,7 +27,7 @@ export type ChordShape = {
   id: string
   family: FamilyId
   name: string
-  technique?: 'Drop 2' | 'Upper structure' | 'Open'
+  technique?: 'Drop 2' | 'Upper structure'
   status: LearningStatus
   voicings: Voicing[]
 }

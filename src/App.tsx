@@ -9,7 +9,7 @@ import {
 } from './data/chords'
 
 const familyFor = (id: FamilyId) => families.find((family) => family.id === id)!
-const techniques = ['Drop 2', 'Upper structure', 'Open'] as const
+const techniques = ['Drop 2', 'Upper structure'] as const
 type Technique = (typeof techniques)[number]
 
 type FilterOption<T extends string> = {
