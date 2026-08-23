@@ -501,4 +501,26 @@ export const chordShapes: ChordShape[] = [
       { stacks: ['1 b3 b7', '4 b7 2'] },
     ],
   },
+  {
+    id: 'm7b5-9-11-upper-structure',
+    name: 'm7b5 (9,11)',
+    technique: 'Upper structure',
+    status: 'learning',
+    voicings: [
+      { stacks: ['1 b3 b5 b7', 'b7 2 4'] },
+      { stacks: ['1 b3 b5 b7', '2 4 b7'] },
+      { stacks: ['1 b3 b5 b7', '4 b7 2'] },
+    ],
+  },
+  {
+    id: 'm7b5-9-upper-structure',
+    name: 'm7b5 (9)',
+    technique: 'Upper structure',
+    status: 'learning',
+    voicings: [
+      { stacks: ['1 b3 b7', 'b7 2 b5'] },
+      { stacks: ['1 b3 b7', '2 b5 b7'] },
+      { stacks: ['1 b3 b7', 'b5 b7 2'] },
+    ],
+  },
 ]
