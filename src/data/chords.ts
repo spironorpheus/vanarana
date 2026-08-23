@@ -14,7 +14,7 @@ export const topNotes = [
 ] as const
 
 export type TopNote = (typeof topNotes)[number]
-export type FamilyId = 'minor' | 'major' | 'half-diminished' | 'dominant'
+export type FamilyId = string
 export type LearningStatus = 'exploring' | 'learning' | 'comfortable'
 
 export type Voicing = {
@@ -60,7 +60,7 @@ export type ChordShape = {
   id: string
   family: FamilyId
   name: string
-  technique?: 'Drop 2' | 'Upper structure'
+  technique?: string
   status: LearningStatus
   voicings: Voicing[]
 }

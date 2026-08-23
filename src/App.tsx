@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   chordShapes,
   families,
@@ -11,15 +11,97 @@ import {
 } from './data/chords'
 import {
   matchVoicing,
+  midiNotesToVoicing,
   midiNoteName,
   rootNotes,
   voicedNotes,
   type VoicingMatch,
 } from './music'
 
-const familyFor = (id: FamilyId) => families.find((family) => family.id === id)!
-const techniques = ['Drop 2', 'Upper structure'] as const
-type Technique = (typeof techniques)[number]
+const familyFor = (id: FamilyId) => families.find((family) => family.id === id) ?? {
+  id,
+  label: id,
+  shortLabel: id.slice(0, 8),
+  description: `Custom ${id} chord family`,
+}
+const defaultTechniques = ['Drop 2', 'Upper structure']
+const localShapesKey = 'chord-atlas.local-shapes.v1'
+const rowCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+type StoredLibrary = {
+  version: 1
+  shapes: ChordShape[]
+  deletedIds: string[]
+}
+
+function isChordShape(value: unknown): value is ChordShape {
+  if (!value || typeof value !== 'object') return false
+  const shape = value as Partial<ChordShape>
+  return typeof shape.id === 'string'
+    && typeof shape.family === 'string'
+    && typeof shape.name === 'string'
+    && (shape.technique === undefined || typeof shape.technique === 'string')
+    && ['exploring', 'learning', 'comfortable'].includes(shape.status ?? '')
+    && Array.isArray(shape.voicings)
+    && shape.voicings.every((voicing) => Array.isArray(voicing?.stacks)
+      && voicing.stacks.length > 0
+      && voicing.stacks.every((stack) => typeof stack === 'string' && stack.trim().length > 0))
+}
+
+function loadLocalLibrary(): StoredLibrary {
+  const emptyLibrary: StoredLibrary = { version: 1, shapes: [], deletedIds: [] }
+  if (typeof window === 'undefined') return emptyLibrary
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(localShapesKey) ?? '') as Partial<StoredLibrary>
+    if (stored.version !== 1 || !Array.isArray(stored.shapes)) return emptyLibrary
+    return {
+      version: 1,
+      shapes: stored.shapes.filter(isChordShape),
+      deletedIds: Array.isArray(stored.deletedIds)
+        ? stored.deletedIds.filter((id): id is string => typeof id === 'string')
+        : [],
+    }
+  } catch {
+    return emptyLibrary
+  }
+}
+
+function mergeShapes(localShapes: ChordShape[], deletedIds: string[]) {
+  const overrides = new Map(localShapes.map((shape) => [shape.id, shape]))
+  const deleted = new Set(deletedIds)
+  const merged = chordShapes.filter((shape) => !deleted.has(shape.id)).map((shape) => overrides.get(shape.id) ?? shape)
+  const builtInIds = new Set(chordShapes.map((shape) => shape.id))
+  return [...merged, ...localShapes.filter((shape) => !builtInIds.has(shape.id) && !deleted.has(shape.id))]
+}
+
+function uniqueStrings(values: Array<string | undefined>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))]
+}
+
+function compareShapes(first: ChordShape, second: ChordShape) {
+  return rowCollator.compare(familyFor(first.family).label, familyFor(second.family).label)
+    || rowCollator.compare(first.name, second.name)
+    || rowCollator.compare(first.technique ?? '', second.technique ?? '')
+    || rowCollator.compare(first.id, second.id)
+}
+
+function createShapeId(shape: ChordShape, shapes: ChordShape[]) {
+  const base = `${shape.name}-${shape.technique ?? 'voicing'}`
+    .toLowerCase()
+    .replaceAll('♭', 'b')
+    .replaceAll('♯', 'sharp')
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'chord-shape'
+  const existingIds = new Set(shapes.map((item) => item.id))
+  let id = base
+  let suffix = 2
+  while (existingIds.has(id)) {
+    id = `${base}-${suffix}`
+    suffix += 1
+  }
+  return id
+}
 
 type FilterOption<T extends string> = {
   value: T
@@ -27,11 +109,16 @@ type FilterOption<T extends string> = {
 }
 
 type MidiStatus = 'idle' | 'connecting' | 'connected' | 'no-devices' | 'error' | 'insecure' | 'unsupported'
+type CompletedMidiNotes = { id: number, notes: number[], stacks: number[][] }
 
 function useMidiInput() {
   const [access, setAccess] = useState<MIDIAccess | null>(null)
   const [heldNotes, setHeldNotes] = useState<number[]>([])
   const [inputNames, setInputNames] = useState<string[]>([])
+  const activeNotes = useRef(new Set<number>())
+  const capturedNotes = useRef(new Map<number, number>())
+  const captureId = useRef(0)
+  const captureListeners = useRef(new Set<(capture: CompletedMidiNotes) => void>())
   const [status, setStatus] = useState<MidiStatus>(
     typeof window !== 'undefined' && !window.isSecureContext
       ? 'insecure'
@@ -53,6 +140,11 @@ function useMidiInput() {
     }
   }
 
+  const subscribeToCompletedNotes = useCallback((listener: (capture: CompletedMidiNotes) => void) => {
+    captureListeners.current.add(listener)
+    return () => { captureListeners.current.delete(listener) }
+  }, [])
+
   useEffect(() => {
     if (!access) return
 
@@ -62,11 +154,41 @@ function useMidiInput() {
       const command = statusByte & 0xf0
 
       if (command === 0x90 && velocity > 0) {
-        setHeldNotes((current) => current.includes(note) ? current : [...current, note].sort((a, b) => a - b))
+        activeNotes.current.add(note)
+        if (!capturedNotes.current.has(note)) {
+          capturedNotes.current.set(note, event.timeStamp || performance.now())
+        }
       } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
-        setHeldNotes((current) => current.filter((heldNote) => heldNote !== note))
+        activeNotes.current.delete(note)
       } else if (command === 0xb0 && (note === 120 || note === 123)) {
-        setHeldNotes([])
+        activeNotes.current.clear()
+      } else {
+        return
+      }
+
+      setHeldNotes([...activeNotes.current].sort((a, b) => a - b))
+      if (activeNotes.current.size === 0 && capturedNotes.current.size > 0) {
+        const timedNotes = [...capturedNotes.current.entries()]
+          .map(([midiNote, startedAt]) => ({ midiNote, startedAt }))
+          .sort((a, b) => a.startedAt - b.startedAt || a.midiNote - b.midiNote)
+        let largestGap = 0
+        let splitAfter = -1
+        for (let index = 0; index < timedNotes.length - 1; index += 1) {
+          const gap = timedNotes[index + 1].startedAt - timedNotes[index].startedAt
+          if (gap > largestGap) {
+            largestGap = gap
+            splitAfter = index
+          }
+        }
+        const stackGroups = largestGap >= 500 && splitAfter >= 0
+          ? [timedNotes.slice(0, splitAfter + 1), timedNotes.slice(splitAfter + 1)]
+          : [timedNotes]
+        const stacks = stackGroups.map((stack) => stack.map((item) => item.midiNote).sort((a, b) => a - b))
+        const notes = [...capturedNotes.current.keys()].sort((a, b) => a - b)
+        capturedNotes.current.clear()
+        captureId.current += 1
+        const capture = { id: captureId.current, notes, stacks }
+        captureListeners.current.forEach((listener) => listener(capture))
       }
     }
 
@@ -77,6 +199,8 @@ function useMidiInput() {
       connectedInputs.forEach((input) => { input.onmidimessage = receiveMidi })
       setInputNames(connectedInputs.map((input) => input.name || 'MIDI keyboard'))
       setStatus(connectedInputs.length ? 'connected' : 'no-devices')
+      activeNotes.current.clear()
+      capturedNotes.current.clear()
       setHeldNotes([])
     }
 
@@ -88,7 +212,7 @@ function useMidiInput() {
     }
   }, [access])
 
-  return { connect, heldNotes, inputNames, status }
+  return { connect, heldNotes, inputNames, status, subscribeToCompletedNotes }
 }
 
 function MidiFilter({
@@ -250,7 +374,226 @@ function VoicingDialog({ selection, onClose }: { selection: { shape: ChordShape,
   )
 }
 
-function Matrix({ shapes, midiActive, midiMatches }: { shapes: ChordShape[], midiActive: boolean, midiMatches: Map<Voicing, VoicingMatch> }) {
+function cloneShape(shape: ChordShape): ChordShape {
+  return { ...shape, voicings: shape.voicings.map((voicing) => ({ stacks: [...voicing.stacks] })) }
+}
+
+function ShapeEditor({
+  familyOptions,
+  midi,
+  onClose,
+  onDelete,
+  onSave,
+  shape,
+  techniqueOptions,
+}: {
+  familyOptions: string[]
+  midi: ReturnType<typeof useMidiInput>
+  onClose: () => void
+  onDelete: (id: string) => void
+  onSave: (shape: ChordShape) => void
+  shape: ChordShape | null
+  techniqueOptions: string[]
+}) {
+  const [draft, setDraft] = useState<ChordShape>(() => shape ? cloneShape(shape) : {
+    id: '',
+    family: 'minor',
+    name: '',
+    technique: 'Drop 2',
+    status: 'learning',
+    voicings: [],
+  })
+  const [captureNotice, setCaptureNotice] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const subscribeToCompletedNotes = midi.subscribeToCompletedNotes
+
+  useEffect(() => {
+    return subscribeToCompletedNotes((completed) => {
+      if (completed.notes.length < 2) {
+        setCaptureNotice('Play at least two notes together to add a voicing.')
+        return
+      }
+
+      const voicing = midiNotesToVoicing(completed.notes, completed.stacks)
+      const voicingKey = voicing.stacks.join(' / ')
+      if (draft.voicings.some((item) => item.stacks.join(' / ') === voicingKey)) {
+        setCaptureNotice('That voicing is already in this shape.')
+        return
+      }
+
+      setDraft((current) => ({ ...current, voicings: [...current.voicings, voicing] }))
+      setCaptureNotice(`Added ${completed.notes.map(midiNoteName).join(' · ')} as ${voicingKey}.`)
+    })
+  }, [draft.voicings, subscribeToCompletedNotes])
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!draft.name.trim() || !draft.family.trim() || !draft.technique?.trim()) {
+      setCaptureNotice('Complete the shape name, chord family, and voicing type.')
+      return
+    }
+    if (draft.voicings.length === 0) {
+      setCaptureNotice('Add at least one voicing before saving the row.')
+      return
+    }
+    onSave({
+      ...draft,
+      family: draft.family.trim(),
+      name: draft.name.trim(),
+      technique: draft.technique?.trim(),
+    })
+  }
+
+  const midiStatus = {
+    idle: 'Enable MIDI, then play a voicing',
+    connecting: 'Requesting MIDI access…',
+    connected: 'Play a voicing, then release every key',
+    'no-devices': 'Connect a MIDI keyboard to add voicings',
+    error: 'MIDI access was not granted',
+    insecure: 'MIDI capture requires HTTPS or localhost',
+    unsupported: 'Web MIDI is not supported in this browser',
+  }[midi.status]
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <section aria-labelledby="shape-editor-title" aria-modal="true" className="shape-editor" role="dialog">
+        <form onSubmit={submit}>
+          <button aria-label="Close editor" className="dialog-close" onClick={onClose} type="button">×</button>
+          <p className="eyebrow">{shape ? 'Edit library row' : 'Add to library'}</p>
+          <h2 id="shape-editor-title">{shape ? shape.name : 'New chord shape'}</h2>
+
+          <div className="editor-fields">
+            <label>
+              <span>Shape name</span>
+              <input autoFocus onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. min11" required value={draft.name} />
+            </label>
+            <label>
+              <span>Chord family</span>
+              <input list="family-designations" onChange={(event) => setDraft({ ...draft, family: event.target.value })} placeholder="Choose or type a new family" required value={draft.family} />
+              <datalist id="family-designations">{familyOptions.map((family) => <option key={family} value={family}>{familyFor(family).label}</option>)}</datalist>
+            </label>
+            <label>
+              <span>Voicing type</span>
+              <input list="technique-designations" onChange={(event) => setDraft({ ...draft, technique: event.target.value })} placeholder="Choose or type a new type" required value={draft.technique ?? ''} />
+              <datalist id="technique-designations">{techniqueOptions.map((technique) => <option key={technique} value={technique} />)}</datalist>
+            </label>
+          </div>
+
+          <div className="editor-section-heading">
+            <div><h3>Voicings</h3><p>The lowest note becomes 1. A pause of 0.5 seconds or more starts the second row.</p></div>
+            <strong>{draft.voicings.length}</strong>
+          </div>
+
+          <div className="editor-voicings">
+            {draft.voicings.length ? draft.voicings.map((voicing, index) => (
+              <div className="editor-voicing" key={`${voicing.stacks.join('-')}-${index}`}>
+                <span className="voicing-number">{index + 1}</span>
+                <VoicingStack stacks={voicing.stacks} />
+                <span className="voicing-top-note">Top {getTopNote(voicing)}</span>
+                <button aria-label={`Delete voicing ${index + 1}`} onClick={() => setDraft({ ...draft, voicings: draft.voicings.filter((_, itemIndex) => itemIndex !== index) })} type="button">Delete</button>
+              </div>
+            )) : <div className="no-voicings">Play and release a voicing to begin.</div>}
+          </div>
+
+          <div className={`midi-capture ${midi.heldNotes.length ? 'recording' : ''}`}>
+            <div>
+              <span className="capture-light" aria-hidden="true" />
+              <div><strong>MIDI capture</strong><small>{midiStatus}</small></div>
+            </div>
+            {(midi.status === 'idle' || midi.status === 'error') && <button className="midi-connect" onClick={midi.connect} type="button">Enable MIDI</button>}
+            {midi.heldNotes.length > 0 && <div className="held-notes">{midi.heldNotes.map((note) => <span key={note}>{midiNoteName(note)}</span>)}</div>}
+          </div>
+          <p aria-live="polite" className="capture-notice">{captureNotice}</p>
+
+          <div className="editor-actions">
+            {shape && <button className={`danger-action ${confirmDelete ? 'confirming' : ''}`} onClick={() => {
+              if (confirmDelete) onDelete(shape.id)
+              else setConfirmDelete(true)
+            }} type="button">{confirmDelete ? 'Confirm delete row' : 'Delete row'}</button>}
+            <div>
+              <button className="secondary-action" onClick={onClose} type="button">Cancel</button>
+              <button className="primary-action" type="submit">Save row</button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function quote(value: string) {
+  return `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`
+}
+
+function exportShape(shape: ChordShape) {
+  const lines = [
+    '  {',
+    `    id: ${quote(shape.id)},`,
+    `    family: ${quote(shape.family)},`,
+    `    name: ${quote(shape.name)},`,
+  ]
+  if (shape.technique) lines.push(`    technique: ${quote(shape.technique)},`)
+  lines.push(
+    `    status: ${quote(shape.status)},`,
+    '    voicings: [',
+    ...shape.voicings.map((voicing) => `      { stacks: [${voicing.stacks.map(quote).join(', ')}] },`),
+    '    ],',
+    '  },',
+  )
+  return lines.join('\n')
+}
+
+function ExportDialog({ deletedIds, onClose, shapes }: { deletedIds: string[], onClose: () => void, shapes: ChordShape[] }) {
+  const [copied, setCopied] = useState(false)
+  const textarea = useRef<HTMLTextAreaElement>(null)
+  const deletedSource = deletedIds.length
+    ? `// Delete entries with these ids from chordShapes:\n${deletedIds.map((id) => `// - ${id}`).join('\n')}\n\n`
+    : ''
+  const editedSource = shapes.length
+    ? `// Replace matching ids and append new entries in chordShapes.\n${shapes.map(exportShape).join('\n')}`
+    : ''
+  const source = `${deletedSource}${editedSource}`.trim()
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(source)
+    } catch {
+      textarea.current?.select()
+      document.execCommand('copy')
+    }
+    setCopied(true)
+  }
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <section aria-labelledby="export-title" aria-modal="true" className="export-dialog" role="dialog">
+        <button aria-label="Close export" className="dialog-close" onClick={onClose}>×</button>
+        <p className="eyebrow">Local library changes</p>
+        <h2 id="export-title">Copy edited entries</h2>
+        <p>Apply these changes to <code>chordShapes</code> in <code>src/data/chords.ts</code>. Existing ids replace matching entries, new ids can be appended, and deleted ids should be removed.</p>
+        <textarea aria-label="Edited chord entries" readOnly ref={textarea} value={source} />
+        <div className="editor-actions">
+          <button className="secondary-action" onClick={onClose}>Close</button>
+          <button className="primary-action" onClick={copy}>{copied ? 'Copied' : 'Copy entries'}</button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function Matrix({ editedIds, midiActive, midiMatches, onEditShape, shapes }: { editedIds: Set<string>, shapes: ChordShape[], midiActive: boolean, midiMatches: Map<Voicing, VoicingMatch>, onEditShape: (shape: ChordShape) => void }) {
   const [selection, setSelection] = useState<{ shape: ChordShape, voicing: Voicing } | null>(null)
   return (
     <><div className="matrix-shell">
@@ -268,7 +611,7 @@ function Matrix({ shapes, midiActive, midiMatches }: { shapes: ChordShape[], mid
             return (
               <tr key={shape.id}>
                 <th className={`family-quality ${shape.family}`}>{family.shortLabel}</th>
-                <th><strong>{shape.name}</strong><small>{shape.technique}</small></th>
+                <th><button aria-label={`Edit ${shape.name}`} className="shape-edit-button" onClick={() => onEditShape(shape)}><strong>{shape.name}</strong><small>{shape.technique}</small>{editedIds.has(shape.id) && <i aria-label="Locally edited" />}</button></th>
                 {topNotes.map((note) => {
                   const voicing = shape.voicings.find((item) => getTopNote(item) === note)
                   const midiMatch = voicing ? midiMatches.get(voicing) : undefined
@@ -295,18 +638,36 @@ function Matrix({ shapes, midiActive, midiMatches }: { shapes: ChordShape[], mid
 function App() {
   const [activeFamily, setActiveFamily] = useState<'all' | FamilyId>('all')
   const [activeTopNote, setActiveTopNote] = useState<'all' | TopNote>('all')
-  const [activeTechnique, setActiveTechnique] = useState<'all' | Technique>('all')
+  const [activeTechnique, setActiveTechnique] = useState('all')
+  const [localLibrary, setLocalLibrary] = useState<StoredLibrary>(loadLocalLibrary)
+  const [editor, setEditor] = useState<{ shape: ChordShape | null } | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
   const midi = useMidiInput()
   const midiActive = midi.heldNotes.length >= 3
+  const shapes = useMemo(() => mergeShapes(localLibrary.shapes, localLibrary.deletedIds), [localLibrary])
+  const editedIds = useMemo(() => new Set(localLibrary.shapes.map((shape) => shape.id)), [localLibrary.shapes])
+  const localChangeCount = localLibrary.shapes.length + localLibrary.deletedIds.length
+  const familyOptions = useMemo(() => uniqueStrings([...families.map((family) => family.id), ...shapes.map((shape) => shape.family)]), [shapes])
+  const techniqueOptions = useMemo(() => uniqueStrings([...defaultTechniques, ...shapes.map((shape) => shape.technique)]), [shapes])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(localShapesKey, JSON.stringify(localLibrary))
+    } catch {
+      // The in-memory edits still work if storage is unavailable or full.
+    }
+  }, [localLibrary])
 
   const filteredShapes = useMemo(() => {
-    return chordShapes.filter((shape) => {
-      const matchesFamily = activeFamily === 'all' || shape.family === activeFamily
-      const matchesTopNote = activeTopNote === 'all' || shape.voicings.some((voicing) => getTopNote(voicing) === activeTopNote)
-      const matchesTechnique = activeTechnique === 'all' || shape.technique === activeTechnique
-      return matchesFamily && matchesTopNote && matchesTechnique
-    })
-  }, [activeFamily, activeTechnique, activeTopNote])
+    return shapes
+      .filter((shape) => {
+        const matchesFamily = activeFamily === 'all' || shape.family === activeFamily
+        const matchesTopNote = activeTopNote === 'all' || shape.voicings.some((voicing) => getTopNote(voicing) === activeTopNote)
+        const matchesTechnique = activeTechnique === 'all' || shape.technique === activeTechnique
+        return matchesFamily && matchesTopNote && matchesTechnique
+      })
+      .sort(compareShapes)
+  }, [activeFamily, activeTechnique, activeTopNote, shapes])
 
   const midiMatches = useMemo(() => {
     const matches = new Map<Voicing, VoicingMatch>()
@@ -324,8 +685,30 @@ function App() {
     ? filteredShapes.filter((shape) => shape.voicings.some((voicing) => midiMatches.has(voicing)))
     : filteredShapes
 
-  const arrangementCount = chordShapes.reduce((total, shape) => total + shape.voicings.length, 0)
+  const arrangementCount = shapes.reduce((total, shape) => total + shape.voicings.length, 0)
   const filteredArrangementCount = filteredShapes.reduce((total, shape) => total + (activeTopNote === 'all' ? shape.voicings.length : 1), 0)
+
+  const saveShape = (draft: ChordShape) => {
+    const savedShape = { ...draft, id: draft.id || createShapeId(draft, shapes) }
+    setLocalLibrary((current) => {
+      const existingIndex = current.shapes.findIndex((shape) => shape.id === savedShape.id)
+      const nextShapes = existingIndex === -1
+        ? [...current.shapes, savedShape]
+        : current.shapes.map((shape, index) => index === existingIndex ? savedShape : shape)
+      return { ...current, shapes: nextShapes, deletedIds: current.deletedIds.filter((id) => id !== savedShape.id) }
+    })
+    setEditor(null)
+  }
+
+  const deleteShape = (id: string) => {
+    const isBuiltIn = chordShapes.some((shape) => shape.id === id)
+    setLocalLibrary((current) => ({
+      ...current,
+      shapes: current.shapes.filter((shape) => shape.id !== id),
+      deletedIds: isBuiltIn && !current.deletedIds.includes(id) ? [...current.deletedIds, id] : current.deletedIds,
+    }))
+    setEditor(null)
+  }
 
   return (
     <div className="app-shell">
@@ -338,7 +721,7 @@ function App() {
               <p className="lede">Find the shape you need by the note you want to sing on top.</p>
             </div>
             <div className="summary-card">
-              <div><strong>{chordShapes.length}</strong><span>chord shapes</span></div>
+              <div><strong>{shapes.length}</strong><span>chord shapes</span></div>
               <i />
               <div><strong>{arrangementCount}</strong><span>arrangements</span></div>
             </div>
@@ -363,7 +746,7 @@ function App() {
               allValue="all"
               options={[
                 { value: 'all', label: 'All' },
-                ...families.map((family) => ({ value: family.id, label: family.label })),
+                ...familyOptions.map((family) => ({ value: family, label: familyFor(family).label })),
               ]}
               onChange={setActiveFamily}
             />
@@ -374,7 +757,7 @@ function App() {
               allValue="all"
               options={[
                 { value: 'all', label: 'All' },
-                ...techniques.map((technique) => ({ value: technique, label: technique })),
+                ...techniqueOptions.map((technique) => ({ value: technique, label: technique })),
               ]}
               onChange={setActiveTechnique}
             />
@@ -387,15 +770,22 @@ function App() {
             ) : (
               <div><strong>{filteredShapes.length} shapes</strong><span> · {filteredArrangementCount} arrangements</span></div>
             )}
+            <div className="library-actions">
+              <button className="secondary-action" disabled={localChangeCount === 0} onClick={() => setExportOpen(true)}>Export edits{localChangeCount ? ` (${localChangeCount})` : ''}</button>
+              <button className="primary-action" onClick={() => setEditor({ shape: null })}>+ Add row</button>
+            </div>
           </div>
 
           {visibleShapes.length ? (
-            <Matrix midiActive={midiActive} midiMatches={midiMatches} shapes={visibleShapes} />
+            <Matrix editedIds={editedIds} midiActive={midiActive} midiMatches={midiMatches} onEditShape={(shape) => setEditor({ shape })} shapes={visibleShapes} />
           ) : midiActive ? (
             <div className="empty-state"><div>♪</div><h2>No ordered match</h2><p>No voicing contains these notes in order with the lowest note as its root.</p></div>
           ) : (
             <div className="empty-state"><div>♪</div><h2>No voicings found</h2><p>Try another top note, family, or voicing type.</p><button onClick={() => { setActiveTopNote('all'); setActiveFamily('all'); setActiveTechnique('all') }}>Clear filters</button></div>
           )}
+
+          {editor && <ShapeEditor familyOptions={familyOptions} key={editor.shape?.id ?? 'new'} midi={midi} onClose={() => setEditor(null)} onDelete={deleteShape} onSave={saveShape} shape={editor.shape} techniqueOptions={techniqueOptions} />}
+          {exportOpen && <ExportDialog deletedIds={localLibrary.deletedIds} onClose={() => setExportOpen(false)} shapes={localLibrary.shapes} />}
         </div>
       </main>
     </div>

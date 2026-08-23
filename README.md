@@ -15,8 +15,16 @@ Use `npm run build` for a production build and `npm run lint` to check the sourc
 
 ## Add a chord
 
-All library content lives in [`src/data/chords.ts`](src/data/chords.ts). Add an
-entry to `chordShapes`:
+Use **Add row** in the browser, or click a name in the **Shape** column to edit
+an existing row. Rows and individual voicings can be deleted from the editor.
+Edits are saved in browser local storage. A MIDI voicing is
+captured when the final held key is released; its lowest note becomes scale
+degree `1`. The largest note-on timing gap divides the two rows when that gap is
+at least 0.5 seconds; otherwise the voicing stays on one row. **Export edits**
+copies code-ready entries for committing to the catalog.
+
+All built-in library content lives in [`src/data/chords.ts`](src/data/chords.ts).
+You can also add an entry to `chordShapes` directly:
 
 ```ts
 {
@@ -41,3 +49,4 @@ normalized to the same column.
 - Filter by chord family, voicing type, or any of the 12 chromatic top notes
 - Hold three or more notes on a Web MIDI keyboard to find ordered voicing matches
 - Browse the library in a compact matrix modeled on the original notes
+- Add and edit rows locally, capture new voicings over MIDI, and export the changes

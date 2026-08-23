@@ -7,6 +7,7 @@ export const degreeSemitones: Record<string, number> = {
 }
 
 export const rootNotes = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B']
+const degreeForSemitone = ['1', '♭2', '2', '♭3', '3', '4', '♭5', '5', '♭6', '6', '♭7', '7']
 
 export type VoicedNote = {
   pitch: number
@@ -20,6 +21,20 @@ export type VoicingMatch = {
 }
 
 const modulo = (value: number, divisor: number) => ((value % divisor) + divisor) % divisor
+
+/** Normalizes an absolute MIDI gesture into the library's lowest-note-root format. */
+export function midiNotesToVoicing(notes: number[], noteStacks: number[][] = [notes]): Voicing {
+  const played = [...new Set(notes)].sort((a, b) => a - b)
+  if (played.length === 0) return { stacks: [] }
+
+  const root = played[0]
+  return {
+    stacks: noteStacks
+      .map((stack) => [...new Set(stack)].sort((a, b) => a - b))
+      .filter((stack) => stack.length > 0)
+      .map((stack) => stack.map((note) => degreeForSemitone[modulo(note - root, 12)]).join(' ')),
+  }
+}
 
 /** Turns the degree order in a cell into a strictly ascending, bottom-to-top voicing. */
 export function voicedNotes(stacks: string[], root: number): VoicedNote[] {
