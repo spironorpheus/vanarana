@@ -1,13 +1,13 @@
 import type { Voicing } from './data/chords'
 
 export const degreeSemitones: Record<string, number> = {
-  '1': 0, '♯1': 1, '♭2': 1, '2': 2, '♯2': 3, '♭3': 3,
-  '3': 4, '♭4': 4, '♯3': 5, '4': 5, '♯4': 6, '♭5': 6,
-  '5': 7, '♯5': 8, '♭6': 8, '6': 9, '♯6': 10, '♭7': 10, '7': 11,
+  '1': 0, '#1': 1, 'b2': 1, '2': 2, '#2': 3, 'b3': 3,
+  '3': 4, 'b4': 4, '#3': 5, '4': 5, '#4': 6, 'b5': 6,
+  '5': 7, '#5': 8, 'b6': 8, '6': 9, '#6': 10, 'b7': 10, '7': 11,
 }
 
-export const rootNotes = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B']
-const degreeForSemitone = ['1', '♭2', '2', '♭3', '3', '4', '♭5', '5', '♭6', '6', '♭7', '7']
+export const rootNotes = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
+const degreeForSemitone = ['1', 'b2', '2', 'b3', '3', '4', 'b5', '5', 'b6', '6', 'b7', '7']
 
 export type VoicedNote = {
   pitch: number

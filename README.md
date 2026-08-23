@@ -36,15 +36,20 @@ You can also add an entry to `chordShapes` directly:
   technique: 'Drop 2',
   status: 'learning',
   voicings: [
-    { stacks: ['1 ♭7', '♭3 5 2'] },
+    { stacks: ['1 b7', 'b3 5 2'] },
   ],
 }
 ```
 
 Each item in `stacks` is shown on its own line, preserving the hand/staff
 grouping from the original notes. The last note in the final stack determines
-the top-note column automatically. Enharmonic degrees such as `♯4` and `♭5` are
+the top-note column automatically. Enharmonic degrees such as `#4` and `b5` are
 normalized to the same column.
+
+Chord names and scale degrees use ASCII accidentals (`b` and `#`). Chord quality
+and defining extensions stay outside parentheses (`maj9`, `min11`, `13`,
+`m7b5`); added or altered tensions go inside a spaced group (`maj7 (#11)`,
+`13 (b9,#11)`, `m7b5 (9)`). Use `add9` only when the chord has no seventh.
 
 ## Included interactions
 

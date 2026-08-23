@@ -123,8 +123,7 @@ function compareShapes(first: ChordShape, second: ChordShape) {
 function createShapeId(shape: ChordShape, shapes: ChordShape[]) {
   const base = `${shape.name}-${shape.technique ?? 'voicing'}`
     .toLowerCase()
-    .replaceAll('♭', 'b')
-    .replaceAll('♯', 'sharp')
+    .replaceAll('#', 'sharp')
     .normalize('NFKD')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || 'chord-shape'
@@ -335,7 +334,7 @@ function VoicingStack({ stacks, matchedNoteIndexes = [] }: { stacks: string[], m
         <div className="note-line" key={`${stack}-${index}`}>
           {stack.split(' ').map((note, noteIndex) => {
             const currentIndex = flatIndex++
-            const hasAccidental = note.startsWith('♭') || note.startsWith('♯')
+            const hasAccidental = note.startsWith('b') || note.startsWith('#')
             const isTopDegree = index === stacks.length - 1 && noteIndex === stack.split(' ').length - 1
             return (
               <span className={`degree ${isTopDegree ? 'top-degree' : ''} ${matchedNotes.has(currentIndex) ? 'midi-note-match' : ''}`} key={`${note}-${noteIndex}`}>
