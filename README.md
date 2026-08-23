@@ -39,4 +39,5 @@ normalized to the same column.
 ## Included interactions
 
 - Filter by chord family, voicing type, or any of the 12 chromatic top notes
+- Hold three or more notes on a Web MIDI keyboard to find ordered voicing matches
 - Browse the library in a compact matrix modeled on the original notes
