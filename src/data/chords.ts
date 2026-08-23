@@ -481,6 +481,18 @@ export const chordShapes: ChordShape[] = [
     ],
   },
   {
+    id: 'maj9-upper-structure',
+    family: 'major',
+    name: 'maj9',
+    technique: 'Upper structure',
+    status: 'learning',
+    voicings: [
+      { stacks: ['1 3 7', '2 5 7'] },
+      { stacks: ['1 3 7', '5 7 2'] },
+      { stacks: ['1 3 7', '7 2 5'] },
+    ],
+  },
+  {
     id: 'min11-upper-structure',
     family: 'minor',
     name: 'min11',
