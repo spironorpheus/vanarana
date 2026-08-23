@@ -74,6 +74,30 @@ function mergeShapes(localShapes: ChordShape[], deletedIds: string[]) {
   return [...merged, ...localShapes.filter((shape) => !builtInIds.has(shape.id) && !deleted.has(shape.id))]
 }
 
+function shapesMatch(first: ChordShape, second: ChordShape) {
+  return first.id === second.id
+    && first.family === second.family
+    && first.name === second.name
+    && first.technique === second.technique
+    && first.status === second.status
+    && first.voicings.length === second.voicings.length
+    && first.voicings.every((voicing, voicingIndex) => {
+      const otherVoicing = second.voicings[voicingIndex]
+      return voicing.stacks.length === otherVoicing.stacks.length
+        && voicing.stacks.every((stack, stackIndex) => stack === otherVoicing.stacks[stackIndex])
+    })
+}
+
+function countUnmatchedLocalChanges(library: StoredLibrary) {
+  const committedShapes = new Map(chordShapes.map((shape) => [shape.id, shape]))
+  const unmatchedShapes = library.shapes.filter((shape) => {
+    const committedShape = committedShapes.get(shape.id)
+    return !committedShape || !shapesMatch(shape, committedShape)
+  })
+  const unmatchedDeletions = library.deletedIds.filter((id) => committedShapes.has(id))
+  return unmatchedShapes.length + unmatchedDeletions.length
+}
+
 function uniqueStrings(values: Array<string | undefined>) {
   return [...new Set(values.filter((value): value is string => Boolean(value)))]
 }
@@ -673,16 +697,17 @@ function App() {
     const matches = new Map<Voicing, VoicingMatch>()
     if (!midiActive) return matches
 
-    filteredShapes.forEach((shape) => shape.voicings.forEach((voicing) => {
-      if (activeTopNote !== 'all' && getTopNote(voicing) !== activeTopNote) return
+    shapes.forEach((shape) => shape.voicings.forEach((voicing) => {
       const match = matchVoicing(voicing, midi.heldNotes)
       if (match) matches.set(voicing, match)
     }))
     return matches
-  }, [activeTopNote, filteredShapes, midi.heldNotes, midiActive])
+  }, [midi.heldNotes, midiActive, shapes])
 
   const visibleShapes = midiActive
-    ? filteredShapes.filter((shape) => shape.voicings.some((voicing) => midiMatches.has(voicing)))
+    ? shapes
+      .filter((shape) => shape.voicings.some((voicing) => midiMatches.has(voicing)))
+      .sort(compareShapes)
     : filteredShapes
 
   const arrangementCount = shapes.reduce((total, shape) => total + shape.voicings.length, 0)
@@ -708,6 +733,15 @@ function App() {
       deletedIds: isBuiltIn && !current.deletedIds.includes(id) ? [...current.deletedIds, id] : current.deletedIds,
     }))
     setEditor(null)
+  }
+
+  const clearLocalEdits = () => {
+    const unmatchedChangeCount = countUnmatchedLocalChanges(localLibrary)
+    if (unmatchedChangeCount > 0 && !window.confirm(
+      `${unmatchedChangeCount} local ${unmatchedChangeCount === 1 ? 'edit does' : 'edits do'} not match the committed chord library and will be lost. Clear local edits anyway?`,
+    )) return
+
+    setLocalLibrary({ version: 1, shapes: [], deletedIds: [] })
   }
 
   return (
@@ -772,6 +806,7 @@ function App() {
             )}
             <div className="library-actions">
               <button className="secondary-action" disabled={localChangeCount === 0} onClick={() => setExportOpen(true)}>Export edits{localChangeCount ? ` (${localChangeCount})` : ''}</button>
+              <button className="danger-action" disabled={localChangeCount === 0} onClick={clearLocalEdits}>Clear local edits</button>
               <button className="primary-action" onClick={() => setEditor({ shape: null })}>+ Add row</button>
             </div>
           </div>

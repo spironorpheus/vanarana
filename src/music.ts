@@ -50,7 +50,8 @@ export function voicedNotes(stacks: string[], root: number): VoicedNote[] {
 
 /**
  * Finds the held pitches as an ordered subsequence of a voicing. The lowest
- * held pitch must align with a root degree; intervals and order may not change.
+ * held pitch must align with a root degree. Order and intervals within a row
+ * may not change, while the second row may be displaced upward by octaves.
  */
 export function matchVoicing(voicing: Voicing, heldNotes: number[]): VoicingMatch | null {
   if (heldNotes.length === 0) return null
@@ -59,10 +60,30 @@ export function matchVoicing(voicing: Voicing, heldNotes: number[]): VoicingMatc
   const voicingNotes = voicedNotes(voicing.stacks, 0)
   if (played.length > voicingNotes.length) return null
 
+  // Keep the intervals within each row exact, but let the upper row sit one or
+  // more octaves above its written, closest-position register.
+  const maximumExtraOctaves = Math.floor((played.at(-1)! - played[0]) / 12)
+
+  for (let extraOctaves = 0; extraOctaves <= maximumExtraOctaves; extraOctaves += 1) {
+    const match = matchAtRowSpacing(voicingNotes, played, extraOctaves)
+    if (match) return match
+  }
+
+  return null
+}
+
+function matchAtRowSpacing(
+  voicingNotes: VoicedNote[],
+  played: number[],
+  extraOctaves: number,
+): VoicingMatch | null {
+  const extraSemitones = extraOctaves * 12
+  const pitchAtSpacing = (note: VoicedNote) => note.pitch + (note.row === 1 ? extraSemitones : 0)
+
   for (let firstIndex = 0; firstIndex < voicingNotes.length; firstIndex += 1) {
     if (degreeSemitones[voicingNotes[firstIndex].degree] !== 0) continue
 
-    const offset = played[0] - voicingNotes[firstIndex].pitch
+    const offset = played[0] - pitchAtSpacing(voicingNotes[firstIndex])
     const noteIndexes = [firstIndex]
     let searchFrom = firstIndex + 1
     let matched = true
@@ -70,7 +91,7 @@ export function matchVoicing(voicing: Voicing, heldNotes: number[]): VoicingMatc
     for (let playedIndex = 1; playedIndex < played.length; playedIndex += 1) {
       const target = played[playedIndex] - offset
       const voicingIndex = voicingNotes.findIndex(
-        (note, index) => index >= searchFrom && note.pitch === target,
+        (note, index) => index >= searchFrom && pitchAtSpacing(note) === target,
       )
 
       if (voicingIndex === -1) {
