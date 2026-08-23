@@ -31,7 +31,6 @@ You can also add an entry to `chordShapes` directly:
 ```ts
 {
   id: 'min9-drop2',
-  family: 'minor',
   name: 'min9',
   technique: 'Drop 2',
   status: 'learning',
@@ -50,6 +49,9 @@ Chord names and scale degrees use ASCII accidentals (`b` and `#`). Chord quality
 and defining extensions stay outside parentheses (`maj9`, `min11`, `13`,
 `m7b5`); added or altered tensions go inside a spaced group (`maj7 (#11)`,
 `13 (b9,#11)`, `m7b5 (9)`). Use `add9` only when the chord has no seventh.
+The chord family is inferred from the shape name: `maj` is major, `min` is
+minor, `m...b5` is half-diminished, and names beginning with `7`, `9`, `13`, or
+`alt` are dominant.
 
 ## Included interactions
 

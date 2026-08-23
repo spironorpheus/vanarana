@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   chordShapes,
   families,
+  getChordFamily,
   getTopNote,
+  inferChordFamily,
   topNotes,
   type ChordShape,
   type FamilyId,
@@ -40,8 +42,8 @@ function isChordShape(value: unknown): value is ChordShape {
   if (!value || typeof value !== 'object') return false
   const shape = value as Partial<ChordShape>
   return typeof shape.id === 'string'
-    && typeof shape.family === 'string'
     && typeof shape.name === 'string'
+    && inferChordFamily(shape.name) !== null
     && (shape.technique === undefined || typeof shape.technique === 'string')
     && ['exploring', 'learning', 'comfortable'].includes(shape.status ?? '')
     && Array.isArray(shape.voicings)
@@ -87,7 +89,6 @@ function mergeShapes(localShapes: ChordShape[], deletedIds: string[]) {
 
 function shapesMatch(first: ChordShape, second: ChordShape) {
   return first.id === second.id
-    && first.family === second.family
     && first.name === second.name
     && first.technique === second.technique
     && first.status === second.status
@@ -114,7 +115,7 @@ function uniqueStrings(values: Array<string | undefined>) {
 }
 
 function compareShapes(first: ChordShape, second: ChordShape) {
-  return rowCollator.compare(familyFor(first.family).label, familyFor(second.family).label)
+  return rowCollator.compare(familyFor(getChordFamily(first.name)).label, familyFor(getChordFamily(second.name)).label)
     || rowCollator.compare(first.name, second.name)
     || rowCollator.compare(first.technique ?? '', second.technique ?? '')
     || rowCollator.compare(first.id, second.id)
@@ -413,7 +414,6 @@ function cloneShape(shape: ChordShape): ChordShape {
 }
 
 function ShapeEditor({
-  familyOptions,
   midi,
   onClose,
   onDelete,
@@ -422,7 +422,6 @@ function ShapeEditor({
   techniqueOptions,
   newShapeVoicingType,
 }: {
-  familyOptions: string[]
   midi: ReturnType<typeof useMidiInput>
   onClose: () => void
   onDelete: (id: string) => void
@@ -433,7 +432,6 @@ function ShapeEditor({
 }) {
   const [draft, setDraft] = useState<ChordShape>(() => shape ? cloneShape(shape) : {
     id: '',
-    family: '',
     name: '',
     technique: newShapeVoicingType,
     status: 'learning',
@@ -470,8 +468,13 @@ function ShapeEditor({
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
-    if (!draft.name.trim() || !draft.family.trim() || !draft.technique?.trim()) {
-      setCaptureNotice('Complete the shape name, chord family, and voicing type.')
+    const name = draft.name.trim()
+    if (!name || !draft.technique?.trim()) {
+      setCaptureNotice('Complete the shape name and voicing type.')
+      return
+    }
+    if (!inferChordFamily(name)) {
+      setCaptureNotice('Use a shape name beginning with maj, min, m…b5, 7, 9, 13, or alt.')
       return
     }
     if (draft.voicings.length === 0) {
@@ -480,8 +483,7 @@ function ShapeEditor({
     }
     onSave({
       ...draft,
-      family: draft.family.trim(),
-      name: draft.name.trim(),
+      name,
       technique: draft.technique?.trim(),
     })
   }
@@ -508,11 +510,6 @@ function ShapeEditor({
             <label>
               <span>Shape name</span>
               <input autoFocus onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. min11" required value={draft.name} />
-            </label>
-            <label>
-              <span>Chord family</span>
-              <input list="family-designations" onChange={(event) => setDraft({ ...draft, family: event.target.value })} placeholder="Choose or type a new family" required value={draft.family} />
-              <datalist id="family-designations">{familyOptions.map((family) => <option key={family} value={family}>{familyFor(family).label}</option>)}</datalist>
             </label>
             <label>
               <span>Voicing type</span>
@@ -571,7 +568,6 @@ function exportShape(shape: ChordShape) {
   const lines = [
     '  {',
     `    id: ${quote(shape.id)},`,
-    `    family: ${quote(shape.family)},`,
     `    name: ${quote(shape.name)},`,
   ]
   if (shape.technique) lines.push(`    technique: ${quote(shape.technique)},`)
@@ -643,10 +639,11 @@ function Matrix({ editedIds, midiActive, midiMatches, onEditShape, shapes }: { e
         </thead>
         <tbody>
           {shapes.map((shape) => {
-            const family = familyFor(shape.family)
+            const familyId = getChordFamily(shape.name)
+            const family = familyFor(familyId)
             return (
               <tr key={shape.id}>
-                <th className={`family-quality ${shape.family}`}>{family.shortLabel}</th>
+                <th className={`family-quality ${familyId}`}>{family.shortLabel}</th>
                 <th><button aria-label={`Edit ${shape.name}`} className="shape-edit-button" onClick={() => onEditShape(shape)}><strong>{shape.name}</strong><small>{shape.technique}</small>{editedIds.has(shape.id) && <i aria-label="Locally edited" />}</button></th>
                 {topNotes.map((note) => {
                   const voicing = shape.voicings.find((item) => getTopNote(item) === note)
@@ -684,7 +681,7 @@ function App() {
   const shapes = useMemo(() => mergeShapes(localLibrary.shapes, localLibrary.deletedIds), [localLibrary])
   const editedIds = useMemo(() => new Set(localLibrary.shapes.map((shape) => shape.id)), [localLibrary.shapes])
   const localChangeCount = localLibrary.shapes.length + localLibrary.deletedIds.length
-  const familyOptions = useMemo(() => uniqueStrings([...families.map((family) => family.id), ...shapes.map((shape) => shape.family)]), [shapes])
+  const familyOptions = families.map((family) => family.id)
   const techniqueOptions = useMemo(() => uniqueStrings([...defaultTechniques, ...shapes.map((shape) => shape.technique)]), [shapes])
 
   useEffect(() => {
@@ -706,7 +703,7 @@ function App() {
   const filteredShapes = useMemo(() => {
     return shapes
       .filter((shape) => {
-        const matchesFamily = activeFamily === 'all' || shape.family === activeFamily
+        const matchesFamily = activeFamily === 'all' || getChordFamily(shape.name) === activeFamily
         const matchesTopNote = activeTopNote === 'all' || shape.voicings.some((voicing) => getTopNote(voicing) === activeTopNote)
         const matchesTechnique = activeTechnique === 'all' || shape.technique === activeTechnique
         return matchesFamily && matchesTopNote && matchesTechnique
@@ -841,7 +838,7 @@ function App() {
             <div className="empty-state"><div>♪</div><h2>No voicings found</h2><p>Try another top note, family, or voicing type.</p><button onClick={() => { setActiveTopNote('all'); setActiveFamily('all'); setActiveTechnique('all') }}>Clear filters</button></div>
           )}
 
-          {editor && <ShapeEditor familyOptions={familyOptions} key={editor.shape?.id ?? 'new'} midi={midi} newShapeVoicingType={lastVoicingType} onClose={() => setEditor(null)} onDelete={deleteShape} onSave={saveShape} shape={editor.shape} techniqueOptions={techniqueOptions} />}
+          {editor && <ShapeEditor key={editor.shape?.id ?? 'new'} midi={midi} newShapeVoicingType={lastVoicingType} onClose={() => setEditor(null)} onDelete={deleteShape} onSave={saveShape} shape={editor.shape} techniqueOptions={techniqueOptions} />}
           {exportOpen && <ExportDialog deletedIds={localLibrary.deletedIds} onClose={() => setExportOpen(false)} shapes={localLibrary.shapes} />}
         </div>
       </main>
