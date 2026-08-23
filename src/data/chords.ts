@@ -14,7 +14,7 @@ export const topNotes = [
 ] as const
 
 export type TopNote = (typeof topNotes)[number]
-export type FamilyId = 'minor' | 'major' | 'half-diminished' | 'dominant'
+export type FamilyId = 'minor' | 'major' | 'half-diminished' | 'dominant' | 'suspended'
 
 export type Voicing = {
   /** Each string is one staff/hand grouping, rendered on its own line. */
@@ -67,7 +67,8 @@ export function inferChordFamily(name: string): FamilyId | null {
 
   if (/^m\d+b5(?=$|[\s(])/.test(normalized)) return 'half-diminished'
   if (/^maj(?=$|[\d\s(])/.test(normalized)) return 'major'
-  if (/^min(?=$|[\d\s(])/.test(normalized)) return 'minor'
+  if (/^(?:min(?=$|[\d\s(])|mm7(?=$|[\s(]))/.test(normalized)) return 'minor'
+  if (/^sus[24](?=$|[\s(])/.test(normalized)) return 'suspended'
   if (/^alt(?=$|[\s(])/.test(normalized) || /^(?:7|9|13)(?=$|\D)/.test(normalized)) return 'dominant'
 
   return null
@@ -108,6 +109,12 @@ export const families: Array<{
     label: 'Dominant',
     shortLabel: 'dom',
     description: 'Altered dominants, suspended colors, and upper structures',
+  },
+  {
+    id: 'suspended',
+    label: 'Suspended',
+    shortLabel: 'sus',
+    description: 'Suspended-second and suspended-fourth colors',
   },
 ]
 

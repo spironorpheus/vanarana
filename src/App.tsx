@@ -482,7 +482,7 @@ function ShapeEditor({
       return
     }
     if (!inferChordFamily(name)) {
-      setCaptureNotice('Use a shape name beginning with maj, min, m…b5, 7, 9, 13, or alt.')
+      setCaptureNotice('Use a shape name beginning with maj, min, mM7, m…b5, sus2, sus4, 7, 9, 13, or alt.')
       return
     }
     if (draft.voicings.length === 0) {

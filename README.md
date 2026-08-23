@@ -48,9 +48,10 @@ Chord names and scale degrees use ASCII accidentals (`b` and `#`). Chord quality
 and defining extensions stay outside parentheses (`maj9`, `min11`, `13`,
 `m7b5`); added or altered tensions go inside a spaced group (`maj7 (#11)`,
 `13 (b9,#11)`, `m7b5 (9)`). Use `add9` only when the chord has no seventh.
-The chord family is inferred from the shape name: `maj` is major, `min` is
-minor, `m...b5` is half-diminished, and names beginning with `7`, `9`, `13`, or
-`alt` are dominant.
+The chord family is inferred from the shape name: `maj` is major; `min` and
+`mM7` are minor; `m...b5` is half-diminished; `sus2` and `sus4` share the
+suspended family; and names beginning with `7`, `9`, `13`, or `alt` are
+dominant.
 
 ## Included interactions
 

@@ -19,7 +19,7 @@ button, input, textarea { font: inherit; }
 button { color: inherit; }
 
 .app-shell { min-height: 100vh; }
-.family-quality.minor { color: #4b776d; }.family-quality.major { color: #b56e28; }.family-quality.half-diminished { color: #a65d56; }.family-quality.dominant { color: #69618b; }
+.family-quality.minor { color: #4b776d; }.family-quality.major { color: #b56e28; }.family-quality.half-diminished { color: #a65d56; }.family-quality.dominant { color: #69618b; }.family-quality.suspended { color: #52799a; }
 
 main { min-width: 0; }
 .content { width: min(1280px, 100%); margin: 0 auto; padding: 45px 42px 70px; }
