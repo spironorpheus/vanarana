@@ -140,10 +140,15 @@ export const chordShapes: ChordShape[] = [
     ],
   },
   {
-    id: 'maj3add9-drop2', family: 'major', name: 'maj(add9)', technique: 'Drop 2', status: 'exploring',
+    id: 'maj3add9-drop2',
+    family: 'major',
+    name: 'maj(add9)',
+    technique: 'Drop 2',
+    status: 'exploring',
     voicings: [
       { stacks: ['1 5', '2 3 1'] },
       { stacks: ['1', '3 5 2'] },
+      { stacks: ['1 3', '1 2 5'] },
     ],
   },
   {
@@ -152,6 +157,17 @@ export const chordShapes: ChordShape[] = [
       { stacks: ['1', '5 7 3'] },
       { stacks: ['1 3', '7 1 5'] },
       { stacks: ['1 5', '1 3 7'] },
+    ],
+  },
+  {
+    id: 'maj7-drop-2-4',
+    family: 'major',
+    name: 'maj7',
+    technique: 'Drop 2+4',
+    status: 'learning',
+    voicings: [
+      { stacks: ['1 5', '3 7'] },
+      { stacks: ['1 5', '7 3'] },
     ],
   },
   {
@@ -294,5 +310,18 @@ export const chordShapes: ChordShape[] = [
   {
     id: '13sus4b9-upper', family: 'dominant', name: '13sus4♭9', technique: 'Upper structure', status: 'exploring',
     voicings: [{ stacks: ['1 ♭7', '♭7 ♭2 4 6'] }],
+  },
+  {
+    id: '7-drop-2',
+    family: 'dominant',
+    name: '7',
+    technique: 'Drop 2',
+    status: 'learning',
+    voicings: [
+      { stacks: ['1 5', '1 3 ♭7'] },
+      { stacks: ['1 ♭7', '3 5 1'] },
+      { stacks: ['1', '5 ♭7 3'] },
+      { stacks: ['1 3', '♭7 1 5'] },
+    ],
   },
 ]
