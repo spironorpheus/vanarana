@@ -45,7 +45,6 @@ function isChordShape(value: unknown): value is ChordShape {
     && typeof shape.name === 'string'
     && inferChordFamily(shape.name) !== null
     && (shape.technique === undefined || typeof shape.technique === 'string')
-    && ['exploring', 'learning', 'comfortable'].includes(shape.status ?? '')
     && Array.isArray(shape.voicings)
     && shape.voicings.every((voicing) => Array.isArray(voicing?.stacks)
       && voicing.stacks.length > 0
@@ -91,7 +90,6 @@ function shapesMatch(first: ChordShape, second: ChordShape) {
   return first.id === second.id
     && first.name === second.name
     && first.technique === second.technique
-    && first.status === second.status
     && first.voicings.length === second.voicings.length
     && first.voicings.every((voicing, voicingIndex) => {
       const otherVoicing = second.voicings[voicingIndex]
@@ -154,13 +152,18 @@ function useMidiInput() {
   const capturedNotes = useRef(new Map<number, number>())
   const captureId = useRef(0)
   const captureListeners = useRef(new Set<(capture: CompletedMidiNotes) => void>())
+  const autoConnectAttempted = useRef(false)
   const [status, setStatus] = useState<MidiStatus>(
     typeof window !== 'undefined' && !window.isSecureContext
       ? 'insecure'
       : typeof navigator === 'undefined' || !navigator.requestMIDIAccess ? 'unsupported' : 'idle',
   )
 
-  const connect = async () => {
+  const connect = useCallback(async () => {
+    if (!window.isSecureContext) {
+      setStatus('insecure')
+      return
+    }
     if (!navigator.requestMIDIAccess) {
       setStatus('unsupported')
       return
@@ -173,7 +176,13 @@ function useMidiInput() {
     } catch {
       setStatus('error')
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (autoConnectAttempted.current) return
+    autoConnectAttempted.current = true
+    void connect()
+  }, [connect])
 
   const subscribeToCompletedNotes = useCallback((listener: (capture: CompletedMidiNotes) => void) => {
     captureListeners.current.add(listener)
@@ -434,7 +443,6 @@ function ShapeEditor({
     id: '',
     name: '',
     technique: newShapeVoicingType,
-    status: 'learning',
     voicings: [],
   })
   const [captureNotice, setCaptureNotice] = useState('')
@@ -572,7 +580,6 @@ function exportShape(shape: ChordShape) {
   ]
   if (shape.technique) lines.push(`    technique: ${quote(shape.technique)},`)
   lines.push(
-    `    status: ${quote(shape.status)},`,
     '    voicings: [',
     ...shape.voicings.map((voicing) => `      { stacks: [${voicing.stacks.map(quote).join(', ')}] },`),
     '    ],',

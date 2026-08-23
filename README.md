@@ -33,7 +33,6 @@ You can also add an entry to `chordShapes` directly:
   id: 'min9-drop2',
   name: 'min9',
   technique: 'Drop 2',
-  status: 'learning',
   voicings: [
     { stacks: ['1 b7', 'b3 5 2'] },
   ],
