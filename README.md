@@ -20,7 +20,7 @@ an existing row. Rows and individual voicings can be deleted from the editor.
 Edits are saved in browser local storage. A MIDI voicing is
 captured when the final held key is released; its lowest note becomes scale
 degree `1`. The largest note-on timing gap divides the two rows when that gap is
-at least 0.5 seconds; otherwise the voicing stays on one row. **Export edits**
+at least 0.3 seconds; otherwise the voicing stays on one row. **Export edits**
 copies code-ready entries for committing to the catalog. **Clear local edits**
 removes browser overrides immediately when they match the committed catalog and
 warns before discarding any changes that do not.

@@ -26,6 +26,8 @@ const familyFor = (id: FamilyId) => families.find((family) => family.id === id) 
 }
 const defaultTechniques = ['Drop 2', 'Upper structure']
 const localShapesKey = 'chord-atlas.local-shapes.v1'
+const lastVoicingTypeKey = 'chord-atlas.last-voicing-type'
+const midiRowSplitThresholdMs = 300
 const rowCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 type StoredLibrary = {
@@ -63,6 +65,15 @@ function loadLocalLibrary(): StoredLibrary {
     }
   } catch {
     return emptyLibrary
+  }
+}
+
+function loadLastVoicingType() {
+  if (typeof window === 'undefined') return defaultTechniques[0]
+  try {
+    return window.localStorage.getItem(lastVoicingTypeKey)?.trim() || defaultTechniques[0]
+  } catch {
+    return defaultTechniques[0]
   }
 }
 
@@ -204,7 +215,7 @@ function useMidiInput() {
             splitAfter = index
           }
         }
-        const stackGroups = largestGap >= 500 && splitAfter >= 0
+        const stackGroups = largestGap >= midiRowSplitThresholdMs && splitAfter >= 0
           ? [timedNotes.slice(0, splitAfter + 1), timedNotes.slice(splitAfter + 1)]
           : [timedNotes]
         const stacks = stackGroups.map((stack) => stack.map((item) => item.midiNote).sort((a, b) => a - b))
@@ -410,6 +421,7 @@ function ShapeEditor({
   onSave,
   shape,
   techniqueOptions,
+  newShapeVoicingType,
 }: {
   familyOptions: string[]
   midi: ReturnType<typeof useMidiInput>
@@ -418,12 +430,13 @@ function ShapeEditor({
   onSave: (shape: ChordShape) => void
   shape: ChordShape | null
   techniqueOptions: string[]
+  newShapeVoicingType: string
 }) {
   const [draft, setDraft] = useState<ChordShape>(() => shape ? cloneShape(shape) : {
     id: '',
-    family: 'minor',
+    family: '',
     name: '',
-    technique: 'Drop 2',
+    technique: newShapeVoicingType,
     status: 'learning',
     voicings: [],
   })
@@ -510,7 +523,7 @@ function ShapeEditor({
           </div>
 
           <div className="editor-section-heading">
-            <div><h3>Voicings</h3><p>The lowest note becomes 1. A pause of 0.5 seconds or more starts the second row.</p></div>
+            <div><h3>Voicings</h3><p>The lowest note becomes 1. A pause of 0.3 seconds or more starts the second row.</p></div>
             <strong>{draft.voicings.length}</strong>
           </div>
 
@@ -664,6 +677,7 @@ function App() {
   const [activeTopNote, setActiveTopNote] = useState<'all' | TopNote>('all')
   const [activeTechnique, setActiveTechnique] = useState('all')
   const [localLibrary, setLocalLibrary] = useState<StoredLibrary>(loadLocalLibrary)
+  const [lastVoicingType, setLastVoicingType] = useState(loadLastVoicingType)
   const [editor, setEditor] = useState<{ shape: ChordShape | null } | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const midi = useMidiInput()
@@ -681,6 +695,14 @@ function App() {
       // The in-memory edits still work if storage is unavailable or full.
     }
   }, [localLibrary])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(lastVoicingTypeKey, lastVoicingType)
+    } catch {
+      // The in-memory default still works if storage is unavailable or full.
+    }
+  }, [lastVoicingType])
 
   const filteredShapes = useMemo(() => {
     return shapes
@@ -714,6 +736,7 @@ function App() {
   const filteredArrangementCount = filteredShapes.reduce((total, shape) => total + (activeTopNote === 'all' ? shape.voicings.length : 1), 0)
 
   const saveShape = (draft: ChordShape) => {
+    if (!draft.id && draft.technique) setLastVoicingType(draft.technique)
     const savedShape = { ...draft, id: draft.id || createShapeId(draft, shapes) }
     setLocalLibrary((current) => {
       const existingIndex = current.shapes.findIndex((shape) => shape.id === savedShape.id)
@@ -819,7 +842,7 @@ function App() {
             <div className="empty-state"><div>♪</div><h2>No voicings found</h2><p>Try another top note, family, or voicing type.</p><button onClick={() => { setActiveTopNote('all'); setActiveFamily('all'); setActiveTechnique('all') }}>Clear filters</button></div>
           )}
 
-          {editor && <ShapeEditor familyOptions={familyOptions} key={editor.shape?.id ?? 'new'} midi={midi} onClose={() => setEditor(null)} onDelete={deleteShape} onSave={saveShape} shape={editor.shape} techniqueOptions={techniqueOptions} />}
+          {editor && <ShapeEditor familyOptions={familyOptions} key={editor.shape?.id ?? 'new'} midi={midi} newShapeVoicingType={lastVoicingType} onClose={() => setEditor(null)} onDelete={deleteShape} onSave={saveShape} shape={editor.shape} techniqueOptions={techniqueOptions} />}
           {exportOpen && <ExportDialog deletedIds={localLibrary.deletedIds} onClose={() => setExportOpen(false)} shapes={localLibrary.shapes} />}
         </div>
       </main>
