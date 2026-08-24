@@ -507,4 +507,32 @@ export const chordShapes: ChordShape[] = [
       { stacks: ['1 b3 b7', 'b5 b7 2'] },
     ],
   },
+  {
+    id: 'mm7-9-upper-structure',
+    name: 'mM7 (9)',
+    technique: 'Upper structure',
+    voicings: [
+      { stacks: ['1 b3 7', '2 5 7'] },
+      { stacks: ['1 b3 7', '5 7 2'] },
+      { stacks: ['1 b3 7', '7 2 5'] },
+    ],
+  },
+  {
+    id: '9-rootless',
+    name: '9',
+    technique: 'Rootless',
+    voicings: [
+      { stacks: ['1', 'b7 2 3 5'] },
+      { stacks: ['1', '3 5 b7 2'] },
+    ],
+  },
+  {
+    id: '9-drop-2',
+    name: '9',
+    technique: 'Drop 2',
+    voicings: [
+      { stacks: ['1 3', 'b7 2 5'] },
+      { stacks: ['1 b7', '3 5 2'] },
+    ],
+  },
 ]
