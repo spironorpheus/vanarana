@@ -72,6 +72,32 @@ export function matchVoicing(voicing: Voicing, heldNotes: number[]): VoicingMatc
   return null
 }
 
+/**
+ * Matches a two-note MIDI gesture using only its outer notes. The lower note
+ * establishes the root and the upper note selects the voicing's top-note
+ * pitch class, without requiring the notes between them to be played.
+ */
+export function matchVoicingByOuterNotes(voicing: Voicing, heldNotes: number[]): VoicingMatch | null {
+  const played = [...new Set(heldNotes)].sort((a, b) => a - b)
+  if (played.length !== 2) return null
+
+  const voicingNotes = voicedNotes(voicing.stacks, 0)
+  const topNoteIndex = voicingNotes.length - 1
+  const rootNoteIndex = voicingNotes.findIndex((note) => degreeSemitones[note.degree] === 0)
+  if (rootNoteIndex === -1 || topNoteIndex === -1) return null
+
+  const playedTopNote = modulo(played[1] - played[0], 12)
+  const voicingTopNote = degreeSemitones[voicingNotes[topNoteIndex].degree]
+  if (playedTopNote !== voicingTopNote) return null
+
+  return {
+    root: modulo(played[0], 12),
+    noteIndexes: rootNoteIndex === topNoteIndex
+      ? [rootNoteIndex]
+      : [rootNoteIndex, topNoteIndex],
+  }
+}
+
 function matchAtRowSpacing(
   voicingNotes: VoicedNote[],
   played: number[],

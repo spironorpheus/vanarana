@@ -13,6 +13,7 @@ import {
 } from './data/chords'
 import {
   matchVoicing,
+  matchVoicingByOuterNotes,
   midiNotesToVoicing,
   midiNoteName,
   rootNotes,
@@ -274,7 +275,12 @@ function MidiFilter({
     insecure: 'MIDI requires HTTPS or localhost',
     unsupported: 'Web MIDI is not supported in this browser',
   }[status]
-  const notesNeeded = Math.max(0, 3 - heldNotes.length)
+  const notesNeeded = Math.max(0, 2 - heldNotes.length)
+  const filterHint = heldNotes.length >= 3
+    ? 'Matching from the lowest-note root'
+    : heldNotes.length === 2
+      ? 'Filtering by base and top notes'
+      : `Hold ${notesNeeded} more ${notesNeeded === 1 ? 'note' : 'notes'} to filter`
 
   return (
     <div className="filter-row midi-filter-row">
@@ -294,7 +300,7 @@ function MidiFilter({
         )}
         {status === 'connected' && (
           <small className={`midi-hint ${notesNeeded === 0 ? 'active' : ''}`}>
-            {notesNeeded === 0 ? 'Matching from the lowest-note root' : `Hold ${notesNeeded} more ${notesNeeded === 1 ? 'note' : 'notes'} to filter`}
+            {filterHint}
           </small>
         )}
       </div>
@@ -684,7 +690,7 @@ function App() {
   const [editor, setEditor] = useState<{ shape: ChordShape | null } | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const midi = useMidiInput()
-  const midiActive = midi.heldNotes.length >= 3
+  const midiActive = midi.heldNotes.length >= 2
   const shapes = useMemo(() => mergeShapes(localLibrary.shapes, localLibrary.deletedIds), [localLibrary])
   const editedIds = useMemo(() => new Set(localLibrary.shapes.map((shape) => shape.id)), [localLibrary.shapes])
   const localChangeCount = localLibrary.shapes.length + localLibrary.deletedIds.length
@@ -723,7 +729,9 @@ function App() {
     if (!midiActive) return matches
 
     shapes.forEach((shape) => shape.voicings.forEach((voicing) => {
-      const match = matchVoicing(voicing, midi.heldNotes)
+      const match = midi.heldNotes.length === 2
+        ? matchVoicingByOuterNotes(voicing, midi.heldNotes)
+        : matchVoicing(voicing, midi.heldNotes)
       if (match) matches.set(voicing, match)
     }))
     return matches
@@ -840,7 +848,7 @@ function App() {
           {visibleShapes.length ? (
             <Matrix editedIds={editedIds} midiActive={midiActive} midiMatches={midiMatches} onEditShape={(shape) => setEditor({ shape })} shapes={visibleShapes} />
           ) : midiActive ? (
-            <div className="empty-state"><div>♪</div><h2>No ordered match</h2><p>No voicing contains these notes in order with the lowest note as its root.</p></div>
+            <div className="empty-state"><div>♪</div><h2>{midi.heldNotes.length === 2 ? 'No base/top-note match' : 'No ordered match'}</h2><p>{midi.heldNotes.length === 2 ? 'No voicing has the lower note as its root and the upper note on top.' : 'No voicing contains these notes in order with the lowest note as its root.'}</p></div>
           ) : (
             <div className="empty-state"><div>♪</div><h2>No voicings found</h2><p>Try another top note, family, or voicing type.</p><button onClick={() => { setActiveTopNote('all'); setActiveFamily('all'); setActiveTechnique('all') }}>Clear filters</button></div>
           )}
