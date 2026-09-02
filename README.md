@@ -15,7 +15,7 @@ Use `npm run build` for a production build and `npm run lint` to check the sourc
 
 ## Add a chord
 
-Use **Add row** in the browser, or click a name in the **Shape** column to edit
+Use **Add row** in the browser, or click a chord in the **Voicing** column to edit
 an existing row. Rows and individual voicings can be deleted from the editor.
 Edits are saved in browser local storage. A MIDI voicing is
 captured when the final held key is released; its lowest note becomes scale
@@ -31,7 +31,8 @@ You can also add an entry to `chordShapes` directly:
 ```ts
 {
   id: 'min9-drop2',
-  name: 'min9',
+  chord: 'min9',
+  name: '',
   technique: 'Drop 2',
   voicings: [
     { stacks: ['1 b7', 'b3 5 2'] },
@@ -44,11 +45,14 @@ grouping from the original notes. The last note in the final stack determines
 the top-note column automatically. Enharmonic degrees such as `#4` and `b5` are
 normalized to the same column.
 
+`chord` contains the chord symbol. `name` optionally identifies a named voicing,
+such as `So What`, and defaults to an empty string.
+
 Chord names and scale degrees use ASCII accidentals (`b` and `#`). Chord quality
 and defining extensions stay outside parentheses (`maj9`, `min11`, `13`,
 `m7b5`); added or altered tensions go inside a spaced group (`maj7 (#11)`,
 `13 (b9,#11)`, `m7b5 (9)`). Use `add9` only when the chord has no seventh.
-The chord family is inferred from the shape name: `maj` is major; `min` and
+The chord family is inferred from `chord`: `maj` is major; `min` and
 `mM7` are minor; `m...b5` is half-diminished; `sus2` and `sus4` share the
 suspended family; and names beginning with `7`, `9`, `13`, or `alt` are
 dominant.

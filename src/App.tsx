@@ -43,8 +43,9 @@ function isChordShape(value: unknown): value is ChordShape {
   if (!value || typeof value !== 'object') return false
   const shape = value as Partial<ChordShape>
   return typeof shape.id === 'string'
+    && typeof shape.chord === 'string'
+    && inferChordFamily(shape.chord) !== null
     && typeof shape.name === 'string'
-    && inferChordFamily(shape.name) !== null
     && (shape.technique === undefined || typeof shape.technique === 'string')
     && Array.isArray(shape.voicings)
     && shape.voicings.every((voicing) => Array.isArray(voicing?.stacks)
@@ -89,6 +90,7 @@ function mergeShapes(localShapes: ChordShape[], deletedIds: string[]) {
 
 function shapesMatch(first: ChordShape, second: ChordShape) {
   return first.id === second.id
+    && first.chord === second.chord
     && first.name === second.name
     && first.technique === second.technique
     && first.voicings.length === second.voicings.length
@@ -114,14 +116,15 @@ function uniqueStrings(values: Array<string | undefined>) {
 }
 
 function compareShapes(first: ChordShape, second: ChordShape) {
-  return rowCollator.compare(familyFor(getChordFamily(first.name)).label, familyFor(getChordFamily(second.name)).label)
+  return rowCollator.compare(familyFor(getChordFamily(first.chord)).label, familyFor(getChordFamily(second.chord)).label)
+    || rowCollator.compare(first.chord, second.chord)
     || rowCollator.compare(first.name, second.name)
     || rowCollator.compare(first.technique ?? '', second.technique ?? '')
     || rowCollator.compare(first.id, second.id)
 }
 
 function createShapeId(shape: ChordShape, shapes: ChordShape[]) {
-  const base = `${shape.name}-${shape.technique ?? 'voicing'}`
+  const base = [shape.chord, shape.name, shape.technique ?? 'voicing'].filter(Boolean).join('-')
     .toLowerCase()
     .replaceAll('#', 'sharp')
     .normalize('NFKD')
@@ -410,8 +413,8 @@ function VoicingDialog({ selection, onClose }: { selection: { shape: ChordShape,
     <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <section aria-labelledby="voicing-title" aria-modal="true" className="voicing-dialog" role="dialog">
         <button aria-label="Close piano" className="dialog-close" onClick={onClose}>×</button>
-        <p className="eyebrow">Voicing in {rootNotes[root]}</p>
-        <h2 id="voicing-title">{selection.shape.name}</h2>
+        <p className="eyebrow">{selection.shape.chord} voicing in {rootNotes[root]}</p>
+        <h2 id="voicing-title">{selection.shape.name || selection.shape.chord}</h2>
         {selection.shape.voicings.length > 1 && <div aria-label="Voicing" className="voicing-picker">
           {selection.shape.voicings.map((item, index) => <button aria-pressed={voicingIndex === index} className={voicingIndex === index ? 'active' : ''} key={`${getTopNote(item)}-${index}`} onClick={() => setVoicingIndex(index)}>{getTopNote(item)}</button>)}
         </div>}
@@ -447,6 +450,7 @@ function ShapeEditor({
 }) {
   const [draft, setDraft] = useState<ChordShape>(() => shape ? cloneShape(shape) : {
     id: '',
+    chord: '',
     name: '',
     technique: newShapeVoicingType,
     voicings: [],
@@ -482,13 +486,13 @@ function ShapeEditor({
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
-    const name = draft.name.trim()
-    if (!name || !draft.technique?.trim()) {
-      setCaptureNotice('Complete the shape name and voicing type.')
+    const chord = draft.chord.trim()
+    if (!chord || !draft.technique?.trim()) {
+      setCaptureNotice('Complete the chord and voicing type.')
       return
     }
-    if (!inferChordFamily(name)) {
-      setCaptureNotice('Use a shape name beginning with maj, min, mM7, m…b5, sus2, sus4, 7, 9, 13, or alt.')
+    if (!inferChordFamily(chord)) {
+      setCaptureNotice('Use a chord beginning with maj, min, mM7, m…b5, sus2, sus4, 7, 9, 13, or alt.')
       return
     }
     if (draft.voicings.length === 0) {
@@ -497,7 +501,8 @@ function ShapeEditor({
     }
     onSave({
       ...draft,
-      name,
+      chord,
+      name: draft.name.trim(),
       technique: draft.technique?.trim(),
     })
   }
@@ -518,12 +523,16 @@ function ShapeEditor({
         <form onSubmit={submit}>
           <button aria-label="Close editor" className="dialog-close" onClick={onClose} type="button">×</button>
           <p className="eyebrow">{shape ? 'Edit library row' : 'Add to library'}</p>
-          <h2 id="shape-editor-title">{shape ? shape.name : 'New chord shape'}</h2>
+          <h2 id="shape-editor-title">{shape ? shape.name || shape.chord : 'New chord shape'}</h2>
 
           <div className="editor-fields">
             <label>
-              <span>Shape name</span>
-              <input autoFocus onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. min11" required value={draft.name} />
+              <span>Chord</span>
+              <input autoFocus onChange={(event) => setDraft({ ...draft, chord: event.target.value })} placeholder="e.g. min11" required value={draft.chord} />
+            </label>
+            <label>
+              <span>Voicing name (optional)</span>
+              <input onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. So What" value={draft.name} />
             </label>
             <label>
               <span>Voicing type</span>
@@ -582,6 +591,7 @@ function exportShape(shape: ChordShape) {
   const lines = [
     '  {',
     `    id: ${quote(shape.id)},`,
+    `    chord: ${quote(shape.chord)},`,
     `    name: ${quote(shape.name)},`,
   ]
   if (shape.technique) lines.push(`    technique: ${quote(shape.technique)},`)
@@ -646,18 +656,18 @@ function Matrix({ editedIds, midiActive, midiMatches, onEditShape, shapes }: { e
         <thead>
           <tr>
             <th>Chord</th>
-            <th>Shape</th>
+            <th>Voicing</th>
             {topNotes.map((note) => <th key={note}>{note}</th>)}
           </tr>
         </thead>
         <tbody>
           {shapes.map((shape) => {
-            const familyId = getChordFamily(shape.name)
+            const familyId = getChordFamily(shape.chord)
             const family = familyFor(familyId)
             return (
               <tr key={shape.id}>
                 <th className={`family-quality ${familyId}`}>{family.shortLabel}</th>
-                <th><button aria-label={`Edit ${shape.name}`} className="shape-edit-button" onClick={() => onEditShape(shape)}><strong>{shape.name}</strong><small>{shape.technique}</small>{editedIds.has(shape.id) && <i aria-label="Locally edited" />}</button></th>
+                <th><button aria-label={`Edit ${shape.name || shape.chord}`} className="shape-edit-button" onClick={() => onEditShape(shape)}><strong>{shape.chord}</strong><small>{[shape.name, shape.technique].filter(Boolean).join(' · ')}</small>{editedIds.has(shape.id) && <i aria-label="Locally edited" />}</button></th>
                 {topNotes.map((note) => {
                   const voicing = shape.voicings.find((item) => getTopNote(item) === note)
                   const midiMatch = voicing ? midiMatches.get(voicing) : undefined
@@ -667,9 +677,10 @@ function Matrix({ editedIds, midiActive, midiMatches, onEditShape, shapes }: { e
                     return <td className={cellClassName} key={note}><span className="empty-cell">·</span></td>
                   }
 
+                  const voicingLabel = shape.name ? `${shape.name} ${shape.chord}` : shape.chord
                   const label = midiMatch
-                    ? `Show matching ${shape.name} voicing in ${rootNotes[midiMatch.root]} with ${note} on top`
-                    : `Show ${shape.name} voicing with ${note} on top`
+                    ? `Show matching ${voicingLabel} voicing in ${rootNotes[midiMatch.root]} with ${note} on top`
+                    : `Show ${voicingLabel} voicing with ${note} on top`
                   return <td className={cellClassName} key={note}><button aria-label={label} className={`voicing-button ${midiMatch ? 'midi-match-button' : ''}`} onClick={() => setSelection({ shape, voicing })}><VoicingStack matchedNoteIndexes={midiMatch?.noteIndexes} stacks={voicing.stacks} />{midiMatch && <span className="midi-root"><small>Root</small>{rootNotes[midiMatch.root]}</span>}</button></td>
                 })}
               </tr>
@@ -716,7 +727,7 @@ function App() {
   const filteredShapes = useMemo(() => {
     return shapes
       .filter((shape) => {
-        const matchesFamily = activeFamily === 'all' || getChordFamily(shape.name) === activeFamily
+        const matchesFamily = activeFamily === 'all' || getChordFamily(shape.chord) === activeFamily
         const matchesTopNote = activeTopNote === 'all' || shape.voicings.some((voicing) => getTopNote(voicing) === activeTopNote)
         const matchesTechnique = activeTechnique === 'all' || shape.technique === activeTechnique
         return matchesFamily && matchesTopNote && matchesTechnique
