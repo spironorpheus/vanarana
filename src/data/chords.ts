@@ -577,4 +577,23 @@ export const chordShapes: ChordShape[] = [
       { stacks: ['1 4 b7', 'b3 5'] },
     ],
   },
+  {
+    id: 'maj69-4-5-intervals',
+    chord: 'maj69',
+    name: '',
+    technique: '4/5 Intervals',
+    voicings: [
+      { stacks: ['1 3 6', '2 5 1'] },
+      { stacks: ['1 3 6', '2 5'] },
+    ],
+  },
+  {
+    id: 'maj13-4-5-intervals-2',
+    chord: 'maj13',
+    name: '',
+    technique: '4/5 Intervals',
+    voicings: [
+      { stacks: ['1 7 3', '6 2 5'] },
+    ],
+  },
 ]
