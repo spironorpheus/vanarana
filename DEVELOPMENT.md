@@ -53,3 +53,5 @@ Keep iOS callout/selection guards scoped to the piano keybed and its labels. Its
 Count-in keyboard monitoring is enabled after audio preparation. Track pre-roll contacts at beat zero, discard contacts released before/at the boundary, and retain positive-duration overlapping holds without reattacking. Only the initial audio-loading state gates keys.
 
 RecordingDialog owns a body portal, background inert state, focus trapping, and fixed-body scroll locking. Restore original inline styles, inert/aria-hidden attributes, focus with preventScroll, and exact scroll coordinates on every exit. Keep the Stop header outside the keyboard scroller; modal sizing includes dynamic viewport and safe-area insets.
+
+Recording must not clear in-flow notices or add a background transport-status row before the dialog captures scroll. Keep existing notices stable; announce recording results in the existing out-of-flow live region so closing cannot shift the chart by inserting a banner.

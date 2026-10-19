@@ -67,6 +67,82 @@ test('recording starts selected bar with count-in; cancellation leaves melody un
   } finally { await ui.close() }
 })
 
+test('recording keeps an existing notice unchanged through count-in cancellation and saving a take', async () => {
+  const ui = await setup()
+  try {
+    const input = ui.label('Import transcription backup')
+    Object.defineProperty(input, 'files', { configurable: true, value: [{ size: 2, text: async () => '{}' }] })
+    await act(async () => input.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })))
+    const notice = document.querySelector('.tx-notice')
+    assert.ok(notice, 'an invalid backup creates an existing in-flow notice')
+    const noticeText = notice.textContent
+    const assertNoticeUnchanged = () => {
+      assert.equal(document.querySelectorAll('.tx-notice').length, 1, 'recording never adds an in-flow notice')
+      assert.equal(document.querySelector('.tx-notice'), notice, 'recording preserves the existing notice element')
+      assert.equal(notice.textContent, noticeText, 'recording never replaces the existing notice text')
+    }
+
+    await ui.click(ui.label('Select bar 1'))
+    for (const saveTake of [false, true]) {
+      const trigger = ui.button('Record melody')
+      await ui.click(trigger)
+      const dialog = document.querySelector('[role="dialog"]')
+      assert.ok(dialog)
+      assert.equal(dialog.getAttribute('aria-modal'), 'true')
+      assert.equal(document.activeElement, ui.button('Stop recording'))
+      assert.equal(document.getElementById('root').getAttribute('inert'), '')
+      assertNoticeUnchanged()
+      assert.equal(document.querySelector('.tx-play-status'), null, 'count-in status is confined to the dialog')
+      assert.match(dialog.textContent, /Count in: 4/)
+
+      if (saveTake) {
+        await ui.tick(0.25)
+        await ui.event(ui.label('Play C4'), 'pointerdown')
+        await ui.tick(1.25)
+        assert.equal(document.querySelector('[role="dialog"]'), dialog, 'the modal stays mounted during recording')
+        assertNoticeUnchanged()
+        assert.equal(document.querySelector('.tx-play-status'), null, 'recording progress does not add inline chart content')
+      }
+
+      await ui.click(ui.button('Stop recording'))
+      assertNoticeUnchanged()
+      const status = document.querySelector('.tx-sr-only[role="status"]')
+      assert.ok(status, 'the recording result has an out-of-flow accessible status')
+      assert.equal(status.textContent, saveTake ? 'Melody replaced in 1 bar.' : 'Count-in cancelled. Melody unchanged.')
+      assert.equal(document.querySelector('[role="dialog"]'), null)
+      assert.equal(document.querySelector('.tx-recording-portal'), null)
+      assert.equal(document.querySelector('.tx-melody-keyboard'), null)
+      assert.equal(document.getElementById('root').hasAttribute('inert'), false)
+      assert.equal(document.getElementById('root').hasAttribute('aria-hidden'), false)
+      assert.equal(document.activeElement, trigger, 'focus returns to the re-enabled Record button')
+      assert.equal(trigger.disabled, false)
+      if (saveTake) {
+        assert.equal(ui.saved().bars[0].melody[0].pitch, 60)
+        assert.equal(ui.saved().bars[0].melody[0].duration, 1)
+      } else assert.deepEqual(ui.saved(), ui.chart)
+    }
+  } finally { await ui.close() }
+})
+
+test('recording results do not insert an in-flow banner when no notice existed', async () => {
+  const ui = await setup()
+  try {
+    await ui.click(ui.label('Select bar 1'))
+    for (const saveTake of [false, true]) {
+      assert.equal(document.querySelector('.tx-notice'), null)
+      await ui.click(ui.button('Record melody'))
+      assert.equal(document.querySelector('.tx-notice'), null)
+      assert.equal(document.querySelector('.tx-play-status'), null)
+      if (saveTake) await ui.tick(0.5)
+      await ui.click(ui.button('Stop recording'))
+      assert.equal(document.querySelector('.tx-notice'), null, 'the result does not change the chart layout')
+      assert.equal(document.querySelector('.tx-sr-only[role="status"]')?.textContent,
+        saveTake ? 'Melody replaced in 1 bar.' : 'Count-in cancelled. Melody unchanged.')
+      assert.equal(document.activeElement, ui.button('Record melody'))
+    }
+  } finally { await ui.close() }
+})
+
 test('silent take replaces every covered bar, preserves others and supports undo', async () => {
   const ui = await setup()
   try {

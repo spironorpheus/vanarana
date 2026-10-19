@@ -51,6 +51,7 @@ export default function Transcription({ active }: { active: boolean }) {
   const [targetKey, setTargetKey] = useState<number | null>(null)
   const [name, setName] = useState('')
   const [message, setMessage] = useState(initial.error)
+  const [recordingNotice, setRecordingNotice] = useState('')
   const [storageFailed, setStorageFailed] = useState(Boolean(initial.error))
   const [audioError, setAudioError] = useState('')
   const [takeFailed, setTakeFailed] = useState(false)
@@ -79,7 +80,7 @@ export default function Transcription({ active }: { active: boolean }) {
     restoreRecordFocus.current = true
     setRecording(false)
     setTakeFailed(false)
-    if (beat <= 0) { setMessage('Count-in cancelled. Melody unchanged.'); return }
+    if (beat <= 0) { setRecordingNotice('Count-in cancelled. Melody unchanged.'); return }
     try {
       let recorded = trimTrailingBars(replaceMelodyTake(current.chart, current.start, beat, current.notes), current.chart.bars[current.start]?.id ?? null)
       // Keep the usual empty workspace available after a take reaches the end.
@@ -93,7 +94,7 @@ export default function Transcription({ active }: { active: boolean }) {
       setUndoTake(current.charts)
       // Save synchronously too: navigation/background/unload must retain the take.
       try { localStorage.setItem(STORAGE, serialized) } catch { setStorageFailed(true) }
-      setMessage(`Melody replaced in ${Math.ceil(beat / 4)} bar${Math.ceil(beat / 4) === 1 ? '' : 's'}.`)
+      setRecordingNotice(`Melody replaced in ${Math.ceil(beat / 4)} bar${Math.ceil(beat / 4) === 1 ? '' : 's'}.`)
     } catch (error) {
       // Keep a recoverable take in memory rather than silently dropping it.
       take.current = current
@@ -181,7 +182,7 @@ export default function Transcription({ active }: { active: boolean }) {
     sequencer.current ??= new ChartSequencer(player.current, receivePlayback)
     const source = chart.bars.length ? chart : { ...chart, bars: [bar] }
     take.current = { chart: source, charts, key, start: source.bars.findIndex(item => item.id === bar.id), notes: [], held: new Map(), lastBeat: 0 }
-    setRecording(true); setTakeFailed(false); setAudioError(''); setMessage('')
+    setRecording(true); setTakeFailed(false); setRecordingNotice('')
     void sequencer.current.play(source, key, bar.id, { countIn: true, muteMelody: true, extendForRecording: true, recordingRate: chart.recordingRate ?? 1 })
   }
   const melodyOn = (id: string, pitch: number) => {
@@ -327,7 +328,7 @@ export default function Transcription({ active }: { active: boolean }) {
             if (bpm !== (chart.bpm ?? DEFAULT_BPM)) update(current => ({ ...current, bpm }))
           }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>
           <label className="tx-metronome">Metronome<span><input aria-label="Metronome" type="checkbox" checked={chart.metronome !== false} onChange={event => update(current => ({ ...current, metronome: event.target.checked }))} />{chart.metronome !== false ? 'On' : 'Off'}</span></label>
-          {playback.playing && <span className="tx-play-status" aria-live="polite">{playback.countInBeatsRemaining ? `Count in: ${playback.countInBeatsRemaining}` : `Playing bar ${(playback.barIndex ?? chart.bars.findIndex(item => item.id === playback.barId)) + 1}`}</span>}
+          {playback.playing && !recording && <span className="tx-play-status" aria-live="polite">{playback.countInBeatsRemaining ? `Count in: ${playback.countInBeatsRemaining}` : `Playing bar ${(playback.barIndex ?? chart.bars.findIndex(item => item.id === playback.barId)) + 1}`}</span>}
         </div>
         </fieldset>
         {playback.error && <p className="tx-notice" role="alert">{playback.error}</p>}
@@ -354,8 +355,9 @@ export default function Transcription({ active }: { active: boolean }) {
         <div className="tx-melody-controls">
           <label className="tx-recording-rate">Recording speed<select aria-label="Recording speed" disabled={recording || playback.playing} value={chart.recordingRate ?? 1} onChange={event => update(current => ({ ...current, recordingRate: Number(event.target.value) as 1 | 0.5 }))}><option value={1}>1×</option><option value={0.5}>½×</option></select></label>
           <button ref={recordButton} className="tx-primary" disabled={!bar || Boolean(draftError) || playback.playing || recording} onClick={startRecording}>Record melody</button>
-          {undoTake && <button disabled={playback.playing || recording} onClick={() => { stopPlayback(); setCharts(undoTake); setUndoTake(null); setMessage('Previous melody restored.') }}>Undo take</button>}
-          <span aria-live="polite">{recording ? playback.countInBeatsRemaining ? `Count in: ${playback.countInBeatsRemaining}` : 'Recording · stop replaces covered bars' : 'Select a bar · one-bar count-in'}</span>
+          {undoTake && <button disabled={playback.playing || recording} onClick={() => { stopPlayback(); setCharts(undoTake); setUndoTake(null); setRecordingNotice('Previous melody restored.') }}>Undo take</button>}
+          <span>Select a bar · one-bar count-in</span>
+          <span className="tx-sr-only" role="status">{recordingNotice}</span>
         </div>
         {takeFailed && <div className="tx-notice" role="alert">The take is still in memory. Download it before leaving, or discard it to keep the old melody.
           <button onClick={() => {
@@ -365,7 +367,7 @@ export default function Transcription({ active }: { active: boolean }) {
             const link = document.createElement('a'); link.href = url; link.download = 'vanarana-melody-take.json'; link.click()
             setTimeout(() => URL.revokeObjectURL(url), 1000)
           }}>Download take</button>
-          <button onClick={() => { take.current = null; setRecording(false); setTakeFailed(false); setAudioError(''); setMessage('Take discarded. Previous melody kept.') }}>Discard take</button>
+          <button onClick={() => { take.current = null; setRecording(false); setTakeFailed(false); setAudioError(''); setRecordingNotice('Take discarded. Previous melody kept.') }}>Discard take</button>
         </div>}
         {recording && !takeFailed && <RecordingDialog onStop={() => finishRecording()} status={playback.audioReady !== true ? 'Preparing audio…' : playback.countInBeatsRemaining ? `Count in: ${playback.countInBeatsRemaining}` : 'Recording'}>
           <MelodyKeyboard disabled={playback.audioReady !== true} onNoteOn={melodyOn} onNoteOff={melodyOff} />
