@@ -644,6 +644,180 @@ test('an enabled metronome has one continuous count-in plus chart timeline', asy
   assert.equal(played[0].durationSeconds, 4)
 })
 
+test('half-speed recording doubles the four-beat count-in and harmony while leaving the chart unchanged', async t => {
+  const activation = deferred()
+  const { sequencer, clock, states, played, melodyPlayed, metronomeStarted } = setup(t, { prepare: () => activation.promise })
+  const input = { ...chart([{ id: 'a', chords: [chord('a1')], melody: [melodyNote('m1')] }], 120), metronome: false }
+  const before = structuredClone(input)
+  const playing = sequencer.play(input, 0, undefined, {
+    countIn: true, muteMelody: true, extendForRecording: true, recordingRate: 0.5,
+  })
+  clock.tick(1000)
+  assert.equal(sequencer.getRecordingBeat(), null)
+  assert.equal(played.length, 0)
+  assert.deepEqual(metronomeStarted, [], 'the slower count-in still waits for audio readiness')
+  activation.resolve()
+  await playing
+  assert.deepEqual(metronomeStarted, [{ at: 1000, bpm: 60, durationSeconds: 4 }])
+  for (let beat = 0; beat < 4; beat++) {
+    assert.equal(states.at(-1).countInBeatsRemaining, 4 - beat)
+    assert.equal(sequencer.getRecordingBeat(), null)
+    assert.equal(played.length, 0)
+    clock.tick(999)
+    assert.equal(states.at(-1).countInBeatsRemaining, 4 - beat)
+    assert.equal(sequencer.getRecordingBeat(), null)
+    clock.tick(1)
+  }
+  assert.equal(states.at(-1).countInBeatsRemaining, 0)
+  assert.equal(sequencer.getRecordingBeat(), 0)
+  assert.deepEqual(played, [{ at: 5000, midi: [60, 64, 67], durationSeconds: 4 }])
+  clock.tick(1250)
+  assert.equal(sequencer.getRecordingBeat(), 1.25)
+  clock.tick(2750)
+  assert.equal(states.at(-1).barIndex, 1)
+  assert.equal(states.at(-1).elapsedBeats, 4)
+  assert.deepEqual(melodyPlayed, [], 'existing melody stays muted for the entire recording')
+  assert.equal(metronomeStarted.length, 1, 'a disabled metronome receives only its slower count-in')
+  assert.deepEqual(input, before, 'recording speed and virtual bars never rewrite the saved chart')
+})
+
+test('half-speed recording applies its rate after bounding the chart tempo, including 20 effective BPM', async t => {
+  const { sequencer, played, metronomeStarted } = setup(t)
+  for (const [chartBpm, effectiveBpm, seconds] of [[40, 20, 12], [1, 20, 12], [240, 120, 2], [1000, 120, 2], [NaN, 60, 4]]) {
+    const input = chart([{ id: 'a', chords: [chord('a1')] }], chartBpm)
+    await sequencer.play(input, 0, undefined, { extendForRecording: true, recordingRate: 0.5 })
+    assert.equal(played.at(-1).durationSeconds, seconds)
+    assert.deepEqual(metronomeStarted.at(-1), { at: 0, bpm: effectiveBpm, durationSeconds: seconds * 1000 })
+    assert.equal(input.bpm, chartBpm)
+  }
+})
+
+test('normal playback ignores recording rate even with a count-in and keeps melody at chart tempo', async t => {
+  for (const countIn of [false, true]) {
+    const { sequencer, clock, played, melodyPlayed, metronomeStarted, states } = setup(t)
+    const input = chart([{ id: 'a', chords: [chord('a1')], melody: [melodyNote('m1', 72, 0, 2)] }], 120)
+    const before = structuredClone(input)
+    await sequencer.play(input, 0, undefined, { countIn, recordingRate: 0.5 })
+    const startsAt = countIn ? 2000 : 0
+    assert.deepEqual(metronomeStarted, [{ at: 0, bpm: 120, durationSeconds: countIn ? 4 : 2 }])
+    clock.tick(startsAt)
+    assert.deepEqual(played, [{ at: startsAt, midi: [60, 64, 67], durationSeconds: 2 }])
+    assert.equal(melodyPlayed.length, 1)
+    assert.equal(melodyPlayed[0].startedAt, startsAt / 1000)
+    assert.equal(melodyPlayed[0].duration, 1)
+    clock.tick(2000)
+    assert.deepEqual(states.at(-1), idle)
+    assert.deepEqual(input, before)
+  }
+})
+
+test('recording rate and tempo are snapshotted before asynchronous audio activation', async t => {
+  const activation = deferred()
+  const { sequencer, clock, played, metronomeStarted } = setup(t, { prepare: () => activation.promise })
+  const input = chart([{ id: 'a', chords: [chord('a1')] }], 120)
+  const options = { extendForRecording: true, recordingRate: 0.5 }
+  const playing = sequencer.play(input, 0, undefined, options)
+  options.recordingRate = 1
+  options.extendForRecording = false
+  input.bpm = 240
+  clock.tick(500)
+  activation.resolve()
+  await playing
+  assert.deepEqual(metronomeStarted, [{ at: 500, bpm: 60, durationSeconds: 4000 }])
+  assert.deepEqual(played, [{ at: 500, midi: [60, 64, 67], durationSeconds: 4 }])
+  clock.tick(1250)
+  assert.equal(sequencer.getRecordingBeat(), 1.25)
+})
+
+test('half-speed recording from a selected bar keeps relative beats, absolute indices, and the extension limit', async t => {
+  const { sequencer, clock, states, played, metronomeStarted } = setup(t)
+  const input = chart(Array.from({ length: 999 }, (_, i) => ({ id: `bar-${i}`, chords: [chord(`chord-${i}`)] })), 80)
+  await sequencer.play(input, 0, 'bar-998', { countIn: true, extendForRecording: true, recordingRate: 0.5 })
+  assert.equal(states.at(-1).barId, 'bar-998')
+  assert.equal(states.at(-1).barIndex, 998)
+  assert.deepEqual(metronomeStarted, [{ at: 0, bpm: 40, durationSeconds: 18 }])
+  clock.tick(6000)
+  assert.equal(sequencer.getRecordingBeat(), 0)
+  assert.equal(states.at(-1).chordId, 'chord-998')
+  assert.deepEqual(played, [{ at: 6000, midi: [60, 64, 67], durationSeconds: 6 }])
+  clock.tick(750)
+  assert.equal(sequencer.getRecordingBeat(), 0.5)
+  clock.tick(5250)
+  assert.equal(sequencer.getRecordingBeat(), 4)
+  assert.equal(states.at(-1).barId, 'recording-bar-999')
+  assert.equal(states.at(-1).barIndex, 999)
+  assert.equal(states.at(-1).elapsedBeats, 4)
+  clock.tick(6000)
+  assert.deepEqual(states.at(-1), { ...idle, elapsedBeats: 8 })
+  assert.equal(sequencer.getRecordingBeat(), null)
+  assert.equal(input.bpm, 80)
+  assert.equal(input.bars.length, 999)
+})
+
+test('stopping half-speed recording during the count-in cancels every pending layer', async t => {
+  const { sequencer, clock, played, states, timers, metronomeStopped, melodyPlayed, melodyStopped, stopped } = setup(t)
+  await sequencer.play(chart([{ id: 'a', chords: [chord('a1')], melody: [melodyNote('m1')] }]), 0,
+    undefined, { countIn: true, muteMelody: true, extendForRecording: true, recordingRate: 0.5 })
+  clock.tick(3900)
+  assert.equal(states.at(-1).countInBeatsRemaining, 1)
+  assert.equal(sequencer.getRecordingBeat(), null)
+  const priorMetronomeStops = metronomeStopped.length
+  const priorMelodyStops = melodyStopped.length
+  sequencer.stop()
+  assert.equal(metronomeStopped.length, priorMetronomeStops + 1)
+  assert.equal(melodyStopped.length, priorMelodyStops + 1)
+  assert.deepEqual(stopped.at(-1), { at: 3900, immediate: true })
+  assert.deepEqual(states.at(-1), { ...idle, elapsedBeats: 0 })
+  assert.equal(sequencer.getRecordingBeat(), null)
+  assert.equal(timers.size, 0)
+  clock.tick(10000)
+  assert.deepEqual(played, [])
+  assert.deepEqual(melodyPlayed, [])
+})
+
+test('stopping a half-speed take preserves fractional recorded beats and the next take restores full speed', async t => {
+  const { sequencer, clock, states, timers, played, metronomeStarted } = setup(t)
+  const input = chart([{ id: 'a', chords: [chord('a1')] }], 120)
+  await sequencer.play(input, 0, undefined, { extendForRecording: true, recordingRate: 0.5 })
+  clock.tick(2250)
+  assert.equal(sequencer.getRecordingBeat(), 2.25)
+  sequencer.stop()
+  assert.deepEqual(states.at(-1), { ...idle, elapsedBeats: 2.25 })
+  assert.equal(sequencer.getRecordingBeat(), null)
+  assert.equal(timers.size, 0)
+  clock.tick(5000)
+  assert.equal(played.length, 1)
+  await sequencer.play(input, 0, undefined, { extendForRecording: true, recordingRate: 1 })
+  assert.deepEqual(metronomeStarted.at(-1), { at: 7250, bpm: 120, durationSeconds: 2000 })
+  assert.deepEqual(played.at(-1), { at: 7250, midi: [60, 64, 67], durationSeconds: 2 })
+  clock.tick(250)
+  assert.equal(sequencer.getRecordingBeat(), 0.5)
+})
+
+test('half-speed record timestamps follow the audio clock and retain their scaled beat on interruption', async t => {
+  let audioTime = 10, interrupted = false
+  const { sequencer, clock, states, timers } = setup(t, { audioTime: () => {
+    if (interrupted) throw new Error('Your browser paused audio.')
+    return audioTime
+  } })
+  await sequencer.play(chart([{ id: 'a', chords: [] }], 120), 0, undefined,
+    { countIn: true, extendForRecording: true, recordingRate: 0.5 })
+  clock.tick(5000)
+  assert.equal(sequencer.getRecordingBeat(), null, 'wall time cannot advance the audio count-in')
+  audioTime = 13.999
+  assert.equal(sequencer.getRecordingBeat(), null)
+  audioTime = 14
+  clock.tick(100)
+  assert.equal(sequencer.getRecordingBeat(), 0)
+  audioTime = 16.25
+  assert.equal(sequencer.getRecordingBeat(), 2.25)
+  interrupted = true
+  assert.equal(sequencer.getRecordingBeat(), 2.25)
+  clock.tick(100)
+  assert.deepEqual(states.at(-1), { ...idle, elapsedBeats: 2.25, error: 'Your browser paused audio.' })
+  assert.equal(timers.size, 0)
+})
+
 test('stopping in the count-in cancels its remaining clicks, queued melody, and chord start', async t => {
   const { sequencer, clock, played, states, timers, melodyPlayed, melodyStopped } = setup(t)
   await sequencer.play(chart([{ id: 'a', chords: [chord('a1')], melody: [melodyNote('m1')] }]), 0,

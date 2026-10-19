@@ -238,7 +238,7 @@ export class ChordPlayer {
   startMetronome(bpm: number, durationSeconds: number, atSeconds?: number): void {
     if (this.disposed) return
     this.stopMetronome()
-    if (!Number.isFinite(bpm) || bpm < MIN_BPM || bpm > MAX_BPM ||
+    if (!Number.isFinite(bpm) || bpm < MIN_BPM / 2 || bpm > MAX_BPM ||
         !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
       throw new Error('Metronome tempo or duration is invalid.')
     }

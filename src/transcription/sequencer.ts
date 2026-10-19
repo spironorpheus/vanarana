@@ -18,6 +18,8 @@ export interface ChartPlaybackOptions {
   countIn?: boolean
   muteMelody?: boolean
   extendForRecording?: boolean
+  /** Applies only to recording; ordinary chart playback always uses its BPM. */
+  recordingRate?: 1 | 0.5
 }
 
 export type SequenceState = ChartPlaybackState
@@ -251,7 +253,9 @@ function snapshot(chart: Chart, key: number, startBarId: string | undefined, opt
   const first = startBarId === undefined ? 0 : chart.bars.findIndex(bar => bar.id === startBarId)
   if (first < 0) throw new Error('The selected bar is no longer in this chart.')
   const requestedBpm = chart.bpm ?? DEFAULT_BPM
-  const bpm = Number.isFinite(requestedBpm) ? Math.max(MIN_BPM, Math.min(MAX_BPM, requestedBpm)) : DEFAULT_BPM
+  const baseBpm = Number.isFinite(requestedBpm) ? Math.max(MIN_BPM, Math.min(MAX_BPM, requestedBpm)) : DEFAULT_BPM
+  if (options.extendForRecording && options.recordingRate !== undefined && options.recordingRate !== 1 && options.recordingRate !== 0.5) throw new Error('Recording speed must be 1x or ½x.')
+  const bpm = baseBpm * (options.extendForRecording ? options.recordingRate ?? 1 : 1)
   const beatDuration = 60_000 / bpm
   const barDuration = 4 * beatDuration
   const slots: Slot[] = []

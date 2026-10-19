@@ -328,3 +328,10 @@ test('metronome is optional for old charts and round-trips boolean settings only
   for (const metronome of [true, false]) assert.equal(parseCharts(serializeCharts([{ ...chart, metronome }]))[0].metronome, metronome)
   for (const metronome of [0, 1, 'false', null]) assert.throws(() => serializeCharts([{ ...chart, metronome }]), /Metronome/)
 })
+
+test('recording speed is optional and only supports full or half speed', () => {
+  const chart = createChart('Recording speed')
+  assert.equal(parseCharts(serializeCharts([chart]))[0].recordingRate, undefined)
+  for (const recordingRate of [1, 0.5]) assert.equal(parseCharts(serializeCharts([{ ...chart, recordingRate }]))[0].recordingRate, recordingRate)
+  for (const recordingRate of [0, 2, 0.25, '0.5', NaN, null]) assert.throws(() => serializeCharts([{ ...chart, recordingRate }]), /Recording speed/)
+})

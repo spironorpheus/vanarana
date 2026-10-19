@@ -79,3 +79,8 @@
 .tx-melody-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; }
 .tx-melody-controls > span { font-size: 12px; color: var(--muted); }
 .transcription fieldset.tx-settings { margin-inline: 0; margin-top: 0; }
+.tx-melody-controls { align-items: flex-end; }
+.tx-melody-controls .tx-recording-rate { flex: 0 0 120px; }
+.tx-melody-controls .tx-recording-rate select { height: 44px; min-height: 44px; }
+.tx-melody-controls > span { align-self: center; }
+@media (max-width: 760px) { .transcription .tx-recording-rate select { font-size: 16px; } }

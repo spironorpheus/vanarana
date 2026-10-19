@@ -45,3 +45,5 @@ The optional per-chart `metronome` boolean defaults to on for old charts. It is 
 
 
 Melody notes are optional per-bar source-key absolute MIDI pitches with beat offsets, durations (which may cross bars), and velocity. Keep cross-bar notes as a single onset; the green bar-edge indicator and automatic trimming include sustained tails. Recording uses the player audio clock after a forced four-beat count-in, with previous melody muted. Replacing a take clears all covered bars, including a partial last bar and silence, clips incoming earlier holds, and retains a one-step undo. Navigation/background saves a started take synchronously; count-in cancellation is a no-op.
+
+The optional per-chart `recordingRate` is 1 or 0.5. Apply it only to recording snapshots, after validating the chart’s normal BPM; the audio metronome supports 20 BPM so a 40 BPM chart can record at half speed. Count-in, chords, playhead, and capture timestamps share this effective beat duration. Saved melody remains in musical beats and ordinary playback ignores the preference.

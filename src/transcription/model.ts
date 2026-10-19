@@ -37,6 +37,7 @@ export interface Chart {
   sourceKey: number
   bpm?: number
   metronome?: boolean
+  recordingRate?: 1 | 0.5
   bars: Bar[]
 }
 
@@ -229,6 +230,10 @@ function validateCharts(value: unknown): Chart[] {
     if (input.bpm !== undefined) {
       if (typeof input.bpm !== 'number' || !Number.isInteger(input.bpm) || input.bpm < MIN_BPM || input.bpm > MAX_BPM) throw new Error(`Tempo must be a whole number from ${MIN_BPM} to ${MAX_BPM} BPM.`)
       chart.bpm = input.bpm
+    }
+    if (input.recordingRate !== undefined) {
+      if (input.recordingRate !== 1 && input.recordingRate !== 0.5) throw new Error('Recording speed must be 1x or ½x.')
+      chart.recordingRate = input.recordingRate
     }
     if (input.metronome !== undefined) {
       if (typeof input.metronome !== 'boolean') throw new Error('Metronome must be on or off.')

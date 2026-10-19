@@ -730,3 +730,13 @@ test('invalid melody pitches, velocity, and schedules fail before making nodes',
   player.scheduleMelodyNote('silent', 60, 0, 1, 0)
   assert.equal(sources.length, 0)
 })
+
+test('half-speed recording metronome supports 20 BPM without clamping', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  const { player, audio, sources } = setup(t)
+  await player.prepare()
+  player.startMetronome(20, 12)
+  for (let step = 0; step < 240; step++) { audio.advance(0.05); t.mock.timers.tick(50) }
+  assert.deepEqual(sources.map(source => source.starts[0].when), [0, 3, 6, 9])
+  assert.throws(() => player.startMetronome(19, 12), /invalid/)
+})

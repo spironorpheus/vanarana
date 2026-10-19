@@ -171,7 +171,7 @@ export default function Transcription({ active }: { active: boolean }) {
     const source = chart.bars.length ? chart : { ...chart, bars: [bar] }
     take.current = { chart: source, charts, key, start: source.bars.findIndex(item => item.id === bar.id), notes: [], held: new Map(), lastBeat: 0 }
     setRecording(true); setTakeFailed(false); setAudioError(''); setMessage('')
-    void sequencer.current.play(source, key, bar.id, { countIn: true, muteMelody: true, extendForRecording: true })
+    void sequencer.current.play(source, key, bar.id, { countIn: true, muteMelody: true, extendForRecording: true, recordingRate: chart.recordingRate ?? 1 })
   }
   const melodyOn = (id: string, pitch: number) => {
     player.current ??= new ChordPlayer()
@@ -339,6 +339,7 @@ export default function Transcription({ active }: { active: boolean }) {
           <span>{storageFailed ? 'Not saved · export a backup' : 'Saved in this browser'}</span>
         </div>
         <div className="tx-melody-controls">
+          <label className="tx-recording-rate">Recording speed<select aria-label="Recording speed" disabled={recording || playback.playing} value={chart.recordingRate ?? 1} onChange={event => update(current => ({ ...current, recordingRate: Number(event.target.value) as 1 | 0.5 }))}><option value={1}>1×</option><option value={0.5}>½×</option></select></label>
           <button className="tx-primary" disabled={!bar || Boolean(draftError) || (playback.playing && !recording)} onClick={recording ? () => finishRecording() : startRecording}>{recording ? 'Stop recording' : 'Record melody'}</button>
           {undoTake && <button disabled={playback.playing || recording} onClick={() => { stopPlayback(); setCharts(undoTake); setUndoTake(null); setMessage('Previous melody restored.') }}>Undo take</button>}
           <span aria-live="polite">{recording ? playback.countInBeatsRemaining ? `Count in: ${playback.countInBeatsRemaining}` : 'Recording · stop replaces covered bars' : 'Select a bar · one-bar count-in'}</span>
