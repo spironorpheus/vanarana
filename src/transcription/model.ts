@@ -6,6 +6,8 @@ export interface Chord {
   root: number
   quality: Quality
   bass?: number
+  /** A timed continuation slot. Pitch fields are inert when this is true. */
+  hold?: true
 }
 
 export interface Bar {
@@ -46,6 +48,7 @@ const DEGREE_LETTERS = [0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6]
 const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 const NATURAL_PITCHES = [0, 2, 4, 5, 7, 9, 11]
 const QUALITY_BY_ID = new Map(QUALITIES.map(quality => [quality.id, quality]))
+const QUALITY_BY_SUFFIX = new Map(QUALITIES.map(quality => [quality.suffix, quality.id]))
 
 export const DEFAULT_BPM = 120
 export const MIN_BPM = 40
@@ -91,6 +94,7 @@ export function noteName(relative: number, key: number): string {
 }
 
 export function chordLabel(chord: Chord, mode: 'degrees' | 'letters', key: number): string {
+  if (chord.hold) return '.'
   const quality = qualityDefinition(chord.quality)
   const name = (root: number) => mode === 'degrees' ? degreeName(root) : noteName(root, key)
   return `${name(chord.root)}${quality.suffix}${chord.bass === undefined ? '' : `/${name(chord.bass)}`}`
@@ -98,6 +102,7 @@ export function chordLabel(chord: Chord, mode: 'degrees' | 'letters', key: numbe
 
 /** Fixed root-position chord tones, with an optional slash bass below the chord. */
 export function chordMidi(chord: Chord, key: number): number[] {
+  if (chord.hold) return []
   const quality = qualityDefinition(chord.quality)
   const root = 60 + (pitchClass(chord.root, 'Chord root') + pitchClass(key, 'Key')) % 12
   const notes = quality.intervals.map(interval => root + interval)
@@ -107,6 +112,43 @@ export function chordMidi(chord: Chord, key: number): number[] {
     notes.unshift(bass)
   }
   return notes
+}
+
+/** Parse whitespace-separated degree chords and continuation slots for one bar. */
+export function parseBarText(text: string): Chord[] {
+  if (typeof text !== 'string') throw new Error('Bar text must be text.')
+  const trimmed = text.trim()
+  if (!trimmed) return []
+  const tokens = trimmed.split(/\s+/u)
+  if (tokens.length > MAX_CHORDS_PER_BAR) {
+    throw new Error(`A bar can contain at most ${MAX_CHORDS_PER_BAR} chord or hold entries.`)
+  }
+  return tokens.map((token, index) => {
+    if (token === '.') return { id: makeId(), root: 0, quality: 'major', hold: true }
+    // Consume the entire token: an unfinished slash or quality is never silently saved.
+    const match = /^([b#♭♯]?)([1-7])(m7b5|dim7|m|7)?(?:\/([b#♭♯]?)([1-7]))?$/u.exec(token)
+    if (!match) {
+      const label = token.length > 32 ? `${token.slice(0, 32)}…` : token
+      throw new Error(`Entry ${index + 1} ("${label}") is not a complete degree chord. Use 1–7 with optional b or #, a quality (m, m7b5, dim7, 7), a slash bass, or . to hold.`)
+    }
+    const chord: Chord = {
+      id: makeId(),
+      root: parseDegree(match[1], match[2]),
+      quality: QUALITY_BY_SUFFIX.get(match[3] ?? '')!,
+    }
+    if (match[5] !== undefined) chord.bass = parseDegree(match[4], match[5])
+    return chord
+  })
+}
+
+/** Canonical, key-independent text suitable for editing and round-tripping. */
+export function barText(bar: Bar): string {
+  return bar.chords.map(chord => chordLabel(chord, 'degrees', 0)).join(' ')
+}
+
+function parseDegree(accidental: string, degree: string): number {
+  const offset = accidental === 'b' || accidental === '♭' ? -1 : accidental === '#' || accidental === '♯' ? 1 : 0
+  return (NATURAL_PITCHES[Number(degree) - 1] + offset + 12) % 12
 }
 
 function qualityDefinition(value: Quality): QualityDefinition {
@@ -189,6 +231,10 @@ function validateCharts(value: unknown): Chart[] {
           quality: inputChord.quality as Quality,
         }
         if (inputChord.bass !== undefined) chord.bass = pitchClass(inputChord.bass, `${chordLabel} slash bass`)
+        if (inputChord.hold !== undefined) {
+          if (inputChord.hold !== true) throw new Error(`${chordLabel} hold must be true when present.`)
+          chord.hold = true
+        }
         return chord
       })
       return bar

@@ -9,6 +9,7 @@ const deferred = () => {
 }
 const flush = () => new Promise(resolve => setImmediate(resolve))
 const chord = (id, root = 0, quality = 'major', bass) => ({ id, root, quality, ...(bass === undefined ? {} : { bass }) })
+const hold = id => ({ id, root: 0, quality: 'major', hold: true })
 const chart = (bars, bpm) => ({ id: 'chart', name: 'Test', sourceKey: 0, bars, ...(bpm === undefined ? {} : { bpm }) })
 const idle = { playing: false, barId: null, chordId: null, error: null }
 
@@ -297,4 +298,207 @@ test('state callback can cancel startup and transitions without leaving playback
   assert.equal(fixture.played.length, 1)
   assert.equal(fixture.timers.size, 0)
   assert.deepEqual(fixture.states.at(-1), idle)
+})
+
+test('holds sustain one attack through equal slots and bar lines while highlights advance', async t => {
+  const { sequencer, clock, played, stopped, states, timers } = setup(t)
+  await sequencer.play(chart([
+    { id: 'a', chords: [chord('a1'), hold('a2'), hold('a3'), chord('a4', 7)] },
+    { id: 'b', chords: [hold('b1'), hold('b2')] },
+    { id: 'c', chords: [chord('c1', 5)] },
+  ]), 0)
+  assert.deepEqual(played, [{ at: 0, midi: [60, 64, 67], durationSeconds: 1.5 }])
+  const initialStops = stopped.length
+  clock.tick(500)
+  assert.deepEqual(states.at(-1), { playing: true, barId: 'a', chordId: 'a2', error: null })
+  clock.tick(500)
+  assert.equal(states.at(-1).chordId, 'a3')
+  assert.equal(played.length, 1)
+  assert.equal(stopped.length, initialStops, 'hold boundaries never stop sustained voices')
+  clock.tick(500)
+  assert.deepEqual(played[1], { at: 1500, midi: [67, 71, 74], durationSeconds: 2.5 })
+  const secondStops = stopped.length
+  clock.tick(500)
+  assert.deepEqual(states.at(-1), { playing: true, barId: 'b', chordId: 'b1', error: null })
+  clock.tick(1000)
+  assert.equal(states.at(-1).chordId, 'b2')
+  assert.equal(played.length, 2)
+  assert.equal(stopped.length, secondStops)
+  clock.tick(1000)
+  assert.deepEqual(played[2], { at: 4000, midi: [65, 69, 72], durationSeconds: 2 })
+  clock.tick(2000)
+  assert.deepEqual(states.at(-1), idle)
+  assert.equal(stopped.at(-1).at, 6000)
+  assert.equal(timers.size, 0)
+})
+
+test('an explicit repeated chord retriggers after its preceding holds', async t => {
+  const { sequencer, clock, played } = setup(t)
+  await sequencer.play(chart([{ id: 'a', chords: [chord('a1'), hold('a2'), chord('a3'), hold('a4')] }]), 0)
+  assert.equal(played[0].durationSeconds, 1)
+  clock.tick(500)
+  assert.equal(played.length, 1)
+  clock.tick(500)
+  assert.deepEqual(played[1], { at: 1000, midi: [60, 64, 67], durationSeconds: 1 })
+  clock.tick(1000)
+  assert.equal(played.length, 2)
+})
+
+test('leading holds with no earlier harmony are silent and still consume their slots', async t => {
+  const { sequencer, clock, played, states } = setup(t)
+  await sequencer.play(chart([
+    { id: 'a', chords: [hold('a1'), hold('a2')] },
+    { id: 'b', chords: [hold('b1'), chord('b2', 9, 'minor'), hold('b3'), hold('b4')] },
+  ]), 0)
+  assert.equal(played.length, 0)
+  assert.equal(states.at(-1).chordId, 'a1')
+  clock.tick(1000)
+  assert.equal(states.at(-1).chordId, 'a2')
+  clock.tick(1000)
+  assert.equal(states.at(-1).chordId, 'b1')
+  assert.equal(played.length, 0)
+  clock.tick(500)
+  assert.deepEqual(played, [{ at: 2500, midi: [69, 72, 76], durationSeconds: 1.5 }])
+  clock.tick(1500)
+  assert.deepEqual(states.at(-1), idle)
+})
+
+test('starting a selected hold bar sounds the latest chart harmony immediately in the selected key', async t => {
+  const { sequencer, clock, played, states } = setup(t)
+  await sequencer.play(chart([
+    { id: 'earlier', chords: [chord('e1'), chord('e2', 9, 'minor', 4), hold('e3')] },
+    { id: 'selected', chords: [hold('s1'), hold('s2')] },
+    { id: 'last', chords: [hold('l1'), chord('l2', 5)] },
+  ], 60), 2, 'selected')
+  assert.deepEqual(played, [{ at: 0, midi: [54, 71, 74, 78], durationSeconds: 6 }])
+  assert.deepEqual(states.at(-1), { playing: true, barId: 'selected', chordId: 's1', error: null })
+  clock.tick(4000)
+  assert.equal(states.at(-1).chordId, 'l1')
+  assert.equal(played.length, 1)
+  clock.tick(2000)
+  assert.deepEqual(played[1], { at: 6000, midi: [67, 71, 74], durationSeconds: 2 })
+})
+
+test('a selected leading hold without prior harmony remains a rest', async t => {
+  const { sequencer, clock, played, states } = setup(t)
+  await sequencer.play(chart([
+    { id: 'empty', chords: [] },
+    { id: 'earlier', chords: [hold('e1')] },
+    { id: 'selected', chords: [hold('s1')] },
+  ]), 0, 'selected')
+  assert.equal(played.length, 0)
+  assert.equal(states.at(-1).chordId, 's1')
+  clock.tick(2000)
+  assert.deepEqual(states.at(-1), idle)
+})
+
+test('empty bars break sustain and later holds resume the remembered harmony once', async t => {
+  const { sequencer, clock, played, stopped, states } = setup(t)
+  const input = chart([
+    { id: 'a', chords: [chord('a1', 7, 'dominant'), hold('a2')] },
+    { id: 'rest', chords: [] },
+    { id: 'held', chords: [hold('h1'), hold('h2')] },
+  ])
+  await sequencer.play(input, 0)
+  assert.deepEqual(played, [{ at: 0, midi: [67, 71, 74, 77], durationSeconds: 2 }])
+  clock.tick(2000)
+  assert.deepEqual(states.at(-1), { playing: true, barId: 'rest', chordId: null, error: null })
+  assert.deepEqual(stopped.at(-1), { at: 2000, immediate: true })
+  clock.tick(2000)
+  assert.deepEqual(played[1], { at: 4000, midi: [67, 71, 74, 77], durationSeconds: 2 })
+  clock.tick(1000)
+  assert.equal(played.length, 2)
+  clock.tick(1000)
+  assert.deepEqual(states.at(-1), idle)
+  await sequencer.play(input, 0, 'held')
+  assert.deepEqual(played.at(-1), { at: 6000, midi: [67, 71, 74, 77], durationSeconds: 2 })
+})
+
+test('hold resolution and full held duration are snapshotted before activation', async t => {
+  const activation = deferred()
+  const { sequencer, clock, played, states } = setup(t, { prepare: () => activation.promise })
+  const input = chart([
+    { id: 'earlier', chords: [chord('e1', 2)] },
+    { id: 'selected', chords: [hold('s1'), hold('s2')] },
+    { id: 'last', chords: [hold('l1')] },
+  ])
+  const playing = sequencer.play(input, 3, 'selected')
+  input.bpm = 60
+  input.bars[0].chords[0].root = 9
+  input.bars[1].chords[0].id = 'changed'
+  input.bars[1].chords[1].hold = undefined
+  input.bars.pop()
+  activation.resolve()
+  await playing
+  assert.deepEqual(played, [{ at: 0, midi: [65, 69, 72], durationSeconds: 4 }])
+  assert.equal(states.at(-1).chordId, 's1')
+  clock.tick(3000)
+  assert.equal(played.length, 1)
+  assert.equal(states.at(-1).barId, 'last')
+  clock.tick(1000)
+  assert.deepEqual(states.at(-1), idle)
+})
+
+test('late timers crossing held slots preserve the sounding attack and absolute deadlines', async t => {
+  const { sequencer, clock, played, stopped, states, timers } = setup(t)
+  await sequencer.play(chart([{ id: 'a', chords: [chord('a1'), hold('a2'), hold('a3'), hold('a4')] }]), 0)
+  const initialStops = stopped.length
+  assert.equal(played[0].durationSeconds, 2)
+  clock.jump(1300)
+  clock.runDue()
+  assert.equal(states.at(-1).chordId, 'a3')
+  assert.equal(played.length, 1)
+  assert.equal(stopped.length, initialStops)
+  assert.equal([...timers.values()][0].at, 1500)
+  clock.tick(200)
+  assert.equal(states.at(-1).chordId, 'a4')
+  clock.jump(2000)
+  clock.runDue()
+  assert.equal(played.length, 1)
+  assert.deepEqual(states.at(-1), idle)
+  assert.equal(timers.size, 0)
+})
+
+test('a late timer entering a newer held phrase plays only its remaining duration', async t => {
+  const { sequencer, clock, played, states, timers } = setup(t)
+  await sequencer.play(chart([{ id: 'a', chords: [chord('a1'), chord('a2', 2), hold('a3'), hold('a4')] }]), 0)
+  clock.jump(1300)
+  clock.runDue()
+  assert.deepEqual(played, [
+    { at: 0, midi: [60, 64, 67], durationSeconds: 0.5 },
+    { at: 1300, midi: [62, 66, 69], durationSeconds: 0.7 },
+  ])
+  assert.equal(states.at(-1).chordId, 'a3')
+  assert.equal([...timers.values()][0].at, 1500)
+  clock.tick(200)
+  assert.equal(played.length, 2)
+  clock.tick(500)
+  assert.deepEqual(states.at(-1), idle)
+})
+
+test('an audio rejection remains current while its chord is held in a later slot', async t => {
+  const note = deferred()
+  const { sequencer, clock, states, timers } = setup(t, { play: () => note.promise })
+  await sequencer.play(chart([{ id: 'a', chords: [chord('a1'), hold('a2')] }]), 0)
+  clock.tick(1000)
+  assert.equal(states.at(-1).chordId, 'a2')
+  note.reject(new Error('Held audio failed'))
+  await flush()
+  assert.deepEqual(states.at(-1), { ...idle, error: 'Held audio failed' })
+  assert.equal(timers.size, 0)
+})
+
+test('a hold highlight callback can stop playback and clear all later held transitions', async t => {
+  let sequencer
+  const fixture = setup(t, { onState: state => {
+    if (state.chordId === 'a2') sequencer.stop()
+  } })
+  sequencer = fixture.sequencer
+  await sequencer.play(chart([{ id: 'a', chords: [chord('a1'), hold('a2'), hold('a3'), hold('a4')] }]), 0)
+  fixture.clock.tick(500)
+  assert.deepEqual(fixture.states.at(-1), idle)
+  assert.equal(fixture.stopped.at(-1).at, 500)
+  assert.equal(fixture.timers.size, 0)
+  fixture.clock.tick(5000)
+  assert.equal(fixture.played.length, 1)
 })

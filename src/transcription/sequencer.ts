@@ -24,7 +24,9 @@ const browserClock: SequencerClock = {
 }
 
 type SequencePlayer = Pick<ChordPlayer, 'prepare' | 'play' | 'stop'>
-type Slot = { barId: string; chordId: string | null; midi: number[]; start: number; end: number }
+/** Contiguous held slots share one sound and one absolute audio deadline. */
+type Sound = { midi: number[]; end: number }
+type Slot = { barId: string; chordId: string | null; sound: Sound | null; end: number }
 const idle = (): ChartPlaybackState => ({ playing: false, barId: null, chordId: null, error: null })
 
 /** Play an immutable chart snapshot from a selected bar through its final beat. */
@@ -38,6 +40,7 @@ export class ChartSequencer {
   private disposed = false
   private slots: Slot[] = []
   private currentSlot = -1
+  private currentSound: Sound | null = null
   private startedAt = 0
 
   constructor(player: SequencePlayer, onState: (state: ChartPlaybackState) => void, clock: SequencerClock = browserClock) {
@@ -98,6 +101,7 @@ export class ChartSequencer {
     this.cancelActivation = null
     this.slots = []
     this.currentSlot = -1
+    this.currentSound = null
     // No release tail may spill into a rest, a replacement, or beyond the chart.
     this.player.stop(true)
   }
@@ -122,15 +126,20 @@ export class ChartSequencer {
     const slot = this.slots[index]
     if (index !== this.currentSlot) {
       this.currentSlot = index
-      this.player.stop(true)
+      const sound = slot.sound
+      const changeSound = sound !== this.currentSound
+      if (changeSound) {
+        this.player.stop(true)
+        this.currentSound = sound
+      }
       this.onState({ playing: true, barId: slot.barId, chordId: slot.chordId, error: null })
       if (!this.isCurrent(request)) return
-      if (slot.midi.length) {
+      if (changeSound && sound) {
         try {
           // Audio also has a hard end time, so a delayed JS timer cannot extend a note.
-          const playing = this.player.play([...slot.midi], { durationSeconds: (slot.end - elapsed) / 1000 })
+          const playing = this.player.play([...sound.midi], { durationSeconds: (sound.end - elapsed) / 1000 })
           void playing.catch(error => {
-            if (this.isCurrent(request) && this.currentSlot === index) this.fail(request, error)
+            if (this.isCurrent(request) && this.currentSound === sound) this.fail(request, error)
           })
         } catch (error) {
           this.fail(request, error)
@@ -153,20 +162,39 @@ function snapshot(chart: Chart, key: number, startBarId?: string): Slot[] {
   const bpm = Number.isFinite(requestedBpm) ? Math.max(MIN_BPM, Math.min(MAX_BPM, requestedBpm)) : DEFAULT_BPM
   const barDuration = 4 * 60_000 / bpm
   const slots: Slot[] = []
+  let previousMidi: number[] | null = null
+  let sound: Sound | null = null
+  // A selected leading hold uses the latest explicit harmony anywhere before it.
+  for (const bar of chart.bars.slice(0, first)) {
+    for (const chord of bar.chords) {
+      if (!chord.hold) previousMidi = chordMidi(chord, key)
+    }
+  }
   chart.bars.slice(first).forEach((bar, barIndex) => {
     const start = barIndex * barDuration
     const end = (barIndex + 1) * barDuration
     if (!bar.chords.length) {
-      slots.push({ barId: bar.id, chordId: null, midi: [], start, end })
+      // An empty bar is silence. A later hold can recall the last harmony, but
+      // starts a fresh sound rather than sustaining through the empty bar.
+      sound = null
+      slots.push({ barId: bar.id, chordId: null, sound: null, end })
       return
     }
     bar.chords.forEach((chord, chordIndex) => {
+      const slotEnd = chordIndex === bar.chords.length - 1 ? end : start + (chordIndex + 1) * barDuration / bar.chords.length
+      if (!chord.hold) {
+        previousMidi = chordMidi(chord, key)
+        sound = { midi: previousMidi, end: slotEnd }
+      } else if (sound) {
+        sound.end = slotEnd
+      } else if (previousMidi) {
+        sound = { midi: previousMidi, end: slotEnd }
+      }
       slots.push({
         barId: bar.id,
         chordId: chord.id,
-        midi: chordMidi(chord, key),
-        start: start + chordIndex * barDuration / bar.chords.length,
-        end: chordIndex === bar.chords.length - 1 ? end : start + (chordIndex + 1) * barDuration / bar.chords.length,
+        sound,
+        end: slotEnd,
       })
     })
   })

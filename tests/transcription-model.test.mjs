@@ -4,7 +4,7 @@ import {
   QUALITIES, KEYS, STORAGE_KEY, STORAGE_VERSION, MAX_IMPORT_CHARACTERS,
   MAX_CHARTS, MAX_BARS_PER_CHART, MAX_CHORDS_PER_BAR,
   makeId, createChart, degreeName, noteName, chordLabel, chordMidi,
-  parseCharts, serializeCharts, loadCharts, saveCharts,
+  parseCharts, serializeCharts, loadCharts, saveCharts, parseBarText, barText,
 } from '../src/transcription/model.ts'
 
 const chord = (overrides = {}) => ({ id: 'chord-1', root: 0, quality: 'major', ...overrides })
@@ -96,6 +96,64 @@ test('fixed MIDI voicings transpose, preserve chord intervals, and put slash bas
         }
       }
     }
+  }
+})
+
+test('bar text parses equal chord and hold slots, slash basses, and all qualities', () => {
+  const parsed = parseBarText('  1 . 5/7 6m  ')
+  assert.deepEqual(parsed.map(({ id, ...value }) => value), [
+    { root: 0, quality: 'major' },
+    { root: 0, quality: 'major', hold: true },
+    { root: 7, quality: 'major', bass: 11 },
+    { root: 9, quality: 'minor' },
+  ])
+  assert.equal(new Set(parsed.map(value => value.id)).size, parsed.length)
+  assert.equal(barText({ id: 'bar', chords: parsed }), '1 . 5/7 6m')
+  assert.deepEqual(parseBarText('1 1m 1m7b5 1dim7 17').map(value => value.quality), QUALITIES.map(value => value.id))
+  assert.equal(barText({ id: 'bar', chords: parseBarText('b3m7b5/#4 57/b7 7dim7/2') }), 'b3m7b5/b5 57/b7 7dim7/2')
+  assert.deepEqual(parseBarText(' \n\t '), [])
+  assert.equal(barText({ id: 'bar', chords: [] }), '')
+})
+
+test('degree text accepts chromatic degrees and canonicalizes equivalent accidentals', () => {
+  const text = '1 b2 2 b3 3 4 #4 5 b6 6 b7 7'
+  const parsed = parseBarText(text)
+  assert.deepEqual(parsed.map(value => value.root), Array.from({ length: 12 }, (_, index) => index))
+  assert.equal(barText({ id: 'bar', chords: parsed }), text.replace('#4', 'b5'))
+  assert.equal(barText({ id: 'bar', chords: parseBarText('b1 #1 #2 b4 #3 b5 #5 #6 #7 ♭3/♯4') }), '7 b2 b3 3 4 b5 b6 b7 1 b3/b5')
+  for (const quality of QUALITIES) {
+    for (let root = 0; root < 12; root++) {
+      for (let bass = 0; bass < 12; bass++) {
+        const original = chord({ root, quality: quality.id, bass })
+        const [parsed] = parseBarText(chordLabel(original, 'degrees', 0))
+        const { id, ...actual } = parsed
+        const { id: originalId, ...expected } = original
+        assert.deepEqual(actual, expected)
+      }
+    }
+  }
+})
+
+test('bar text rejects incomplete and unsupported tokens rather than truncating them', () => {
+  for (const text of ['5/', '5/#', '5/7x', '5//7', '5/7/1', '1m7', '1maj7', '1dim', '1m7b', '8', '0', '11', '12', 'b', '#', 'C', '1,', '1.', '..', '1 . nope']) {
+    assert.throws(() => parseBarText(text), /Entry \d+.*not a complete degree chord/)
+  }
+  for (const value of [null, undefined, 1, []]) assert.throws(() => parseBarText(value), /must be text/)
+  assert.equal(parseBarText(Array(MAX_CHORDS_PER_BAR).fill('.').join(' ')).length, MAX_CHORDS_PER_BAR)
+  assert.throws(() => parseBarText(Array(MAX_CHORDS_PER_BAR + 1).fill('1').join(' ')), /at most 64/)
+})
+
+test('holds display as dots, do not generate an attack, and survive version 1 storage', () => {
+  const held = chord({ hold: true })
+  assert.equal(chordLabel(held, 'degrees', 0), '.')
+  assert.equal(chordLabel(held, 'letters', 2), '.')
+  assert.deepEqual(chordMidi(held, 2), [])
+  const original = chart({ bars: [{ id: 'bar-1', chords: parseBarText('1 . 5/7 . .') }] })
+  assert.deepEqual(parseCharts(serializeCharts([original])), [original])
+  assert.equal(JSON.parse(serializeCharts([original])).version, 1)
+  assert.equal(parseCharts(serializeCharts([chart()]))[0].bars[0].chords[0].hold, undefined)
+  for (const value of [false, null, 0, 1, '.', 'true', {}]) {
+    assert.throws(() => parseCharts(malformedChord({ hold: value })), /hold must be true/)
   }
 })
 

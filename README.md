@@ -15,7 +15,9 @@ A personal music practice space for exploring chord voicings and training your e
 
 Create named chord charts with one or more chords per bar. Choose a major-key reference (1=C, for example), then audition the five common chord qualities across all 12 roots. Selecting a bar makes grid taps both play and append chords; **Done editing** returns to audition only.
 
-Click an inserted chord to change its root, quality, or slash bass. Charts default to plain scale-degree notation (1, 1m, 1m7b5, 1dim7, 17); switch to letter chords and choose a target key to transpose both display and audition. Add section names and timestamps, reorder bars or chords, and undo a removal. Use **Play chart** (or **Play from bar**) to hear the chart from the selected bar through the end. Set the tempo from 40–240 BPM; each bar has four beats, with its chords spaced evenly and empty bars left silent. Playback highlights its position separately from your edit selection. Play your reference recording separately.
+Select a bar and type scale-degree chords such as `1 . 5/7 6m`. A dot holds the previous chord without another attack, including across bar boundaries. Use `m`, `m7b5`, `dim7`, or `7` for chord qualities and `/` for slash bass. Grid taps still append to the selected bar. The compact chart defaults to degree notation; switch to letter chords and a target key to transpose display and playback. The text editor always uses degrees.
+
+Use **Play chart** (or **Play from bar**) to hear the chart through the end at 40–240 BPM. Every bar has four beats divided evenly among its entries; empty bars are silent. Playback highlights its position separately from your selection. Unfinished invalid text stays in the editor until you fix or discard it; the last valid chart stays saved. Play your reference recording separately.
 
 Transcriptions save in this browser. Export/import JSON backups to keep or transfer your work; imports add copies without replacing existing charts.
 
