@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { KEYS, QUALITIES, DEFAULT_BPM, MIN_BPM, MAX_BPM, createChart, makeId, degreeName, noteName, chordLabel, chordMidi, parseCharts, serializeCharts, parseBarText, barText, type Chart, type Bar, type Chord, type Quality } from './model'
 import { ChordPlayer } from './player'
 import { ChartSequencer, type SequenceState } from './sequencer'
 import './transcription.css'
 
 const STORAGE = 'vanarana.transcriptions.v1'
+const DRAFT_WARNING = 'Finish the bar text or discard the unfinished edit first. Your last valid chart is still saved.'
 function initialData(): { charts: Chart[]; error: string } {
   try { const raw = localStorage.getItem(STORAGE); return { charts: raw ? parseCharts(raw) : [], error: '' } }
   catch { return { charts: [], error: 'Saved transcriptions could not be read. Export any new work before leaving this page.' } }
@@ -29,6 +30,10 @@ export default function Transcription({ active }: { active: boolean }) {
   const fileInput = useRef<HTMLInputElement>(null)
   const barButtons = useRef(new Map<string, HTMLButtonElement>())
   const returnFocus = useRef<string | null>(null)
+  // A stable ref runs only when the inline field mounts, never on text updates.
+  const focusEditor = useCallback((element: HTMLTextAreaElement | null) => {
+    if (element) { element.focus(); element.select() }
+  }, [])
   const chart = charts.find(item => item.id === chartId)
   const bar = chart?.bars.find(item => item.id === selectedBar)
   const key = mode === 'letters' ? targetKey ?? chart?.sourceKey ?? 0 : chart?.sourceKey ?? 0
@@ -77,10 +82,11 @@ export default function Transcription({ active }: { active: boolean }) {
   }
   const update = (fn: (current: Chart) => Chart) => { setUndo(null); return commitCharts(charts.map(item => item.id === chartId ? fn(item) : item)) }
   const updateBar = (fn: (current: Bar) => Bar) => update(current => ({ ...current, bars: current.bars.map(item => item.id === selectedBar ? fn(item) : item) }))
-  const clearDraft = () => { setDraft(null); setDraftError('') }
+  const clearDraftWarning = () => setMessage(previous => previous === DRAFT_WARNING ? '' : previous)
+  const clearDraft = () => { setDraft(null); setDraftError(''); clearDraftWarning() }
   const canLeaveDraft = () => {
     if (!draftError) return true
-    setMessage('Finish the bar text or discard the unfinished edit first. Your last valid chart is still saved.')
+    setMessage(DRAFT_WARNING)
     return false
   }
   const chooseBar = (id: string | null) => {
@@ -97,7 +103,7 @@ export default function Transcription({ active }: { active: boolean }) {
     try {
       const entries = parseBarText(text)
       if (!updateBar(current => ({ ...current, chords: entries }))) throw new Error('This edit exceeds the chart limits. Shorten it before saving.')
-      setDraftError('')
+      setDraftError(''); clearDraftWarning()
     } catch (error) { setDraftError(error instanceof Error ? error.message : 'Check the chord text.') }
   }
   const audition = (value: Chord) => {
@@ -167,8 +173,8 @@ export default function Transcription({ active }: { active: boolean }) {
         {playback.error && <p className="tx-notice" role="alert">{playback.error}</p>}
         <div className="tx-bars">{chart.bars.map((item, index) => item.id === selectedBar && !playback.playing
           ? <div className="tx-bar is-selected" key={item.id} aria-label={`Bar ${index + 1} editor`}>
-              <textarea aria-label="Bar chord text" aria-describedby={`tx-inline-help${draftError ? ' tx-text-error' : ''}`} aria-invalid={Boolean(draftError)}
-                value={draft ?? barText(item)} onInput={event => editBarText(event.currentTarget.value)} rows={2} maxLength={4096} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoFocus
+              <textarea ref={focusEditor} aria-label="Bar chord text" aria-describedby={`tx-inline-help${draftError ? ' tx-text-error' : ''}`} aria-invalid={Boolean(draftError)}
+                value={draft ?? barText(item)} onInput={event => editBarText(event.currentTarget.value)} rows={2} maxLength={4096} spellCheck={false} autoCapitalize="off" autoCorrect="off"
                 placeholder="1 . 5/7 6m" onKeyDown={event => {
                   if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Escape') { event.preventDefault(); chooseBar(null) }
                 }} />
