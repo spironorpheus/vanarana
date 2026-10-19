@@ -13,32 +13,31 @@
 .tx-create { display: flex; align-items: flex-end; gap: 8px; flex: 1.4; }
 .tx-create label { flex: 1; }
 .tx-backups { display: flex; gap: 7px; }
-.tx-chart, .tx-edit, .tx-audition { border: 1px solid var(--line); background: var(--paper); border-radius: 12px; margin-top: 20px; padding: 22px; }
-.tx-chart-heading { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 14px; margin-bottom: 20px; }
-.tx-chart-heading .tx-title { flex: 1; min-width: 180px; }
-.tx-title input { font-family: Georgia, serif; font-size: 24px; }
+.tx-chart, .tx-audition { border: 1px solid var(--line); background: var(--paper); border-radius: 12px; margin-top: 20px; padding: 22px; }
+.tx-settings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; gap: 12px; margin-bottom: 18px; }
+.tx-settings.with-target { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.tx-settings .tx-chart-heading, .tx-settings .tx-transport { display: contents; }
+.tx-settings .tx-title { grid-column: 1 / -1; }
+.transcription .tx-settings :is(input, select, button) { height: 44px; min-height: 44px; font-family: inherit; font-size: 14px; width: 100%; }
+.tx-settings .tx-play { order: 2; padding-inline: 6px; white-space: nowrap; }
+.tx-settings .tx-play-status { order: 3; grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; }
 .tx-bars { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
 .transcription .tx-bar { min-height: 48px; min-width: 0; padding: 9px 10px; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 0; text-align: left; font-size: 16px; background: transparent; }
 .transcription .tx-bar.is-selected { background: var(--green-soft); box-shadow: inset 0 0 0 2px var(--green); }
 .tx-bar-entries { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
 .tx-bar-entries > span { white-space: nowrap; }
-.tx-section { display: block; font-size: 10px; color: var(--muted); margin-bottom: 5px; }
 .tx-blank { color: #b7b4aa; }
 .transcription .tx-bar:disabled { opacity: 1; }
 .transcription .tx-bar.is-playing { background: #f8edda; box-shadow: inset 0 0 0 2px var(--ochre); }
 .tx-bar .is-sounding { color: #8c4c15; text-decoration: underline; text-underline-offset: 4px; }
-.transcription textarea { display: block; width: 100%; min-height: 70px; resize: vertical; border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; line-height: 1.6; }
+.transcription textarea { display: block; width: 100%; min-height: 44px; resize: vertical; border: 1px solid var(--line); border-radius: 0; padding: 5px; background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; line-height: 1.6; }
 .transcription textarea:focus-visible { outline: 3px solid var(--ochre); outline-offset: 2px; }
 .transcription textarea[aria-invalid="true"] { border-color: #a34e3c; }
 .tx-text-help { margin: 8px 0 14px; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .tx-text-error { color: #8e3e2c; font-size: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .tx-chart-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
 .tx-chart-actions span { margin-left: auto; color: var(--muted); font-size: 11px; }
-.tx-edit { border-color: #a6b9ad; }
-.tx-edit-heading, .tx-grid-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
-.tx-edit-heading h2 { margin: 0; }
-.tx-edit-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 9px; }
-.tx-edit-fields label { flex: 1; min-width: 130px; max-width: 230px; }
+.tx-grid-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
 .tx-grid-heading p, .tx-welcome p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 0; }
 .tx-grid-heading > button { flex-shrink: 0; }
 .tx-grid-scroll { overflow-x: auto; }
@@ -52,20 +51,20 @@
 .tx-welcome { margin: 30px 0; padding: 25px 0; }
 @media (max-width: 760px) {
   .tx-library { gap: 14px 10px; }.tx-library > label { flex-basis: 100%; }.tx-create { flex-basis: 100%; }
-  .tx-chart, .tx-edit, .tx-audition { padding: 14px; }
+  .tx-chart, .tx-audition { padding: 14px; }
   .tx-bars { grid-template-columns: repeat(4, minmax(0, 1fr)); }.transcription .tx-bar { font-size: 14px; padding: 8px; }
-  .tx-chart-heading { gap: 12px; }.tx-chart-heading .tx-title { flex-basis: 100%; }.tx-chart-heading > label { flex: 1; }
+  .tx-settings, .tx-settings.with-target { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .tx-settings .tx-target-key { grid-column: 1 / -1; }
+  .transcription .tx-settings :is(input, select, button) { font-size: 16px; }
+  .transcription .tx-settings .tx-play { font-size: 14px; }
   .tx-chart-actions span { width: 100%; margin: 2px 0 0; }
   .tx-grid th { font-size: 9px; }.tx-grid th:first-child { width: 27px; }.tx-grid td { padding: 2px; }
   .transcription .tx-grid button { font-size: 13px; letter-spacing: -.3px; }
   .tx-grid-heading { align-items: flex-start; }.tx-grid-heading p { font-size: 12px; }.tx-grid-heading h2 { font-size: 23px; }
-  .tx-edit-fields label { max-width: none; }.tx-edit-fields > button { flex: 1; }
 }
-@media (max-width: 360px) { .tx-chart, .tx-edit, .tx-audition { padding: 10px; }.transcription .tx-grid button { font-size: 12px; } }
-.tx-transport { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 0 0 18px; }
-.tx-transport label { width: 110px; }
-.tx-transport > span { color: var(--muted); font-size: 11px; line-height: 1.5; }
-@media (max-width: 760px) { .tx-transport > span { flex-basis: 100%; }.tx-transport > button { flex: 1; } }
-
+@media (max-width: 360px) { .tx-chart, .tx-audition { padding: 10px; }.transcription .tx-grid button { font-size: 12px; } }
 @media (min-width: 761px) and (max-width: 1050px) { .tx-bars { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 480px) { .tx-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.transcription div.tx-bar.is-selected { padding: 3px; }
+.transcription .tx-bar textarea { border: 0; background: transparent; line-height: 1.4; }

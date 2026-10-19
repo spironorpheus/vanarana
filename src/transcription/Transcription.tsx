@@ -9,12 +9,6 @@ function initialData(): { charts: Chart[]; error: string } {
   try { const raw = localStorage.getItem(STORAGE); return { charts: raw ? parseCharts(raw) : [], error: '' } }
   catch { return { charts: [], error: 'Saved transcriptions could not be read. Export any new work before leaving this page.' } }
 }
-function moved<T>(items: T[], index: number, direction: number) {
-  const next = [...items]; const target = index + direction
-  if (target >= 0 && target < items.length) [next[index], next[target]] = [next[target], next[index]]
-  return next
-}
-
 export default function Transcription({ active }: { active: boolean }) {
   const [initial] = useState(initialData)
   const [charts, setCharts] = useState(initial.charts)
@@ -33,6 +27,8 @@ export default function Transcription({ active }: { active: boolean }) {
   const sequencer = useRef<ChartSequencer | null>(null)
   const player = useRef<ChordPlayer | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const barButtons = useRef(new Map<string, HTMLButtonElement>())
+  const returnFocus = useRef<string | null>(null)
   const chart = charts.find(item => item.id === chartId)
   const bar = chart?.bars.find(item => item.id === selectedBar)
   const key = mode === 'letters' ? targetKey ?? chart?.sourceKey ?? 0 : chart?.sourceKey ?? 0
@@ -59,6 +55,13 @@ export default function Transcription({ active }: { active: boolean }) {
     return () => window.removeEventListener('beforeunload', warn)
   }, [draftError])
 
+  useEffect(() => {
+    if (selectedBar === null && returnFocus.current) {
+      barButtons.current.get(returnFocus.current)?.focus()
+      returnFocus.current = null
+    }
+  }, [selectedBar])
+
   const stopPlayback = () => { sequencer.current?.stop(); player.current?.stop() }
   const playChart = () => {
     if (!chart || draftError) return
@@ -82,6 +85,7 @@ export default function Transcription({ active }: { active: boolean }) {
   }
   const chooseBar = (id: string | null) => {
     if (!canLeaveDraft()) return
+    if (id === null) returnFocus.current = selectedBar
     setSelectedBar(id); clearDraft()
   }
   const chooseChart = (id: string) => {
@@ -143,36 +147,46 @@ export default function Transcription({ active }: { active: boolean }) {
     {message && <p className="tx-notice" role="status">{message}<button aria-label="Dismiss notice" onClick={() => setMessage('')}>×</button></p>}
     {chart ? <>
       <section className="tx-chart" aria-label="Chord chart">
+        <div className={`tx-settings ${mode === 'letters' ? 'with-target' : ''}`}>
         <div className="tx-chart-heading"><label className="tx-title">Title<input aria-label="Transcription title" value={chart.name} maxLength={120} onChange={event => update(current => ({ ...current, name: event.target.value.trim() ? event.target.value : 'Untitled' }))} onBlur={() => { if (!chart.name.trim()) update(current => ({ ...current, name: 'Untitled' })) }} /></label>
           <label>Major-key reference<select aria-label="Major-key reference" value={chart.sourceKey} onChange={event => { update(current => ({ ...current, sourceKey: Number(event.target.value) })); stopPlayback() }}>{KEYS.map((label, index) => <option value={index} key={label}>1={label}</option>)}</select></label>
           <label>Notation<select aria-label="Notation" value={mode} onChange={event => { setMode(event.target.value as typeof mode); stopPlayback() }}><option value="degrees">Scale degrees</option><option value="letters">Letter chords</option></select></label>
-          {mode === 'letters' && <label>Render & play in<select aria-label="Render and play in" value={key} onChange={event => { setTargetKey(Number(event.target.value)); stopPlayback() }}>{KEYS.map((label, index) => <option value={index} key={label}>{label} major</option>)}</select></label>}
+          {mode === 'letters' && <label className="tx-target-key">Render & play in<select aria-label="Render and play in" value={key} onChange={event => { setTargetKey(Number(event.target.value)); stopPlayback() }}>{KEYS.map((label, index) => <option value={index} key={label}>{label} major</option>)}</select></label>}
         </div>
         <div className="tx-transport" aria-label="Chart playback">
-          <button className="tx-primary" disabled={!chart.bars.length || Boolean(draftError)} onClick={playback.playing ? stopPlayback : playChart}>{playback.playing ? 'Stop playback' : selectedBar ? `Play from bar ${chart.bars.findIndex(item => item.id === selectedBar) + 1}` : 'Play chart'}</button>
-          <label>Tempo (BPM)<input aria-label="Tempo (BPM)" type="number" min={MIN_BPM} max={MAX_BPM} step="1" defaultValue={chart.bpm ?? DEFAULT_BPM} key={`${chart.id}:${chart.bpm}`} onBlur={event => {
+          <button className="tx-primary tx-play" disabled={!chart.bars.length || Boolean(draftError)} onClick={playback.playing ? stopPlayback : playChart}>{playback.playing ? 'Stop playback' : selectedBar ? `Play from bar ${chart.bars.findIndex(item => item.id === selectedBar) + 1}` : 'Play chart'}</button>
+          <label className="tx-tempo">Tempo (BPM)<input aria-label="Tempo (BPM)" type="number" min={MIN_BPM} max={MAX_BPM} step="1" defaultValue={chart.bpm ?? DEFAULT_BPM} key={`${chart.id}:${chart.bpm}`} onBlur={event => {
             const value = Number(event.target.value)
             const bpm = Number.isFinite(value) ? Math.max(MIN_BPM, Math.min(MAX_BPM, Math.round(value))) : DEFAULT_BPM
             event.target.value = String(bpm)
             if (bpm !== (chart.bpm ?? DEFAULT_BPM)) update(current => ({ ...current, bpm }))
           }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>
-          <span aria-live="polite">{playback.playing ? `Playing bar ${chart.bars.findIndex(item => item.id === playback.barId) + 1}` : '4 beats per bar · entries spaced evenly'}</span>
+          {playback.playing && <span className="tx-play-status" aria-live="polite">Playing bar {chart.bars.findIndex(item => item.id === playback.barId) + 1}</span>}
+        </div>
         </div>
         {playback.error && <p className="tx-notice" role="alert">{playback.error}</p>}
-        <div className="tx-bars">{chart.bars.map((item, index) => <button className={`tx-bar ${item.id === selectedBar ? 'is-selected' : ''} ${item.id === playback.barId ? 'is-playing' : ''}`} key={item.id}
-          disabled={playback.playing} aria-label={`Select bar ${index + 1}`} aria-pressed={item.id === selectedBar} onClick={() => chooseBar(item.id === selectedBar ? null : item.id)}>
-          {item.section && <small className="tx-section">{item.section}</small>}
-          <span className="tx-bar-entries">{item.chords.length ? item.chords.map(value => <span className={playback.chordId === value.id ? 'is-sounding' : ''} key={value.id}>{chordLabel(value, mode, key)}</span>) : <span className="tx-blank" aria-hidden="true">—</span>}</span>
-        </button>)}</div>
-        <div className="tx-chart-actions"><button disabled={playback.playing} onClick={() => update(current => ({ ...current, bars: [...current.bars, { id: makeId(), chords: [] }] }))}>+ Add bar</button>{undo && <button disabled={playback.playing || Boolean(draftError)} onClick={() => { setCharts(undo); setUndo(null); setSelectedBar(null); clearDraft() }}>Undo removal</button>}<span>{storageFailed ? 'Not saved · export a backup' : 'Saved in this browser'}</span></div>
+        <div className="tx-bars">{chart.bars.map((item, index) => item.id === selectedBar && !playback.playing
+          ? <div className="tx-bar is-selected" key={item.id} aria-label={`Bar ${index + 1} editor`}>
+              <textarea aria-label="Bar chord text" aria-describedby={`tx-inline-help${draftError ? ' tx-text-error' : ''}`} aria-invalid={Boolean(draftError)}
+                value={draft ?? barText(item)} onInput={event => editBarText(event.currentTarget.value)} rows={2} maxLength={4096} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoFocus
+                placeholder="1 . 5/7 6m" onKeyDown={event => {
+                  if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Escape') { event.preventDefault(); chooseBar(null) }
+                }} />
+            </div>
+          : <button className={`tx-bar ${item.id === selectedBar ? 'is-selected' : ''} ${item.id === playback.barId ? 'is-playing' : ''}`} key={item.id}
+              ref={element => { if (element) barButtons.current.set(item.id, element); else barButtons.current.delete(item.id) }}
+              disabled={playback.playing} aria-label={`Select bar ${index + 1}`} aria-pressed={item.id === selectedBar} onClick={() => chooseBar(item.id)}>
+              <span className="tx-bar-entries">{item.chords.length ? item.chords.map(value => <span className={playback.chordId === value.id ? 'is-sounding' : ''} key={value.id}>{chordLabel(value, mode, key)}</span>) : <span className="tx-blank" aria-hidden="true">—</span>}</span>
+            </button>)}</div>
+        {bar && !playback.playing && <p id="tx-inline-help" className="tx-text-help">Edit in scale degrees: 1 . 5/7 6m. A dot holds the previous chord. Enter to finish.</p>}
+        {draftError && <p id="tx-text-error" className="tx-text-error" role="alert">{draftError} Last valid bar saved.<button onClick={clearDraft}>Discard unfinished edit</button></p>}
+        <div className="tx-chart-actions">
+          <button disabled={playback.playing} onClick={() => update(current => ({ ...current, bars: [...current.bars, { id: makeId(), chords: [] }] }))}>+ Add bar</button>
+          {bar && !playback.playing && <><button onClick={() => chooseBar(null)}>Done editing</button><button onClick={removeBar}>Remove bar</button></>}
+          {undo && <button disabled={playback.playing || Boolean(draftError)} onClick={() => { setCharts(undo); setUndo(null); setSelectedBar(null); clearDraft() }}>Undo removal</button>}
+          <span>{storageFailed ? 'Not saved · export a backup' : 'Saved in this browser'}</span>
+        </div>
       </section>
-      {bar && !playback.playing && <section className="tx-edit" aria-label="Bar editor">
-        <div className="tx-edit-heading"><label className="tx-text-label" htmlFor="tx-bar-text">Bar {chart.bars.indexOf(bar) + 1} · scale-degree text</label><button onClick={() => chooseBar(null)}>Done editing</button></div>
-        <textarea id="tx-bar-text" aria-label="Bar chord text" aria-describedby="tx-text-help tx-text-error" aria-invalid={Boolean(draftError)} value={draft ?? barText(bar)} onInput={event => editBarText(event.currentTarget.value)} rows={2} maxLength={4096} spellCheck={false} autoCapitalize="off" autoCorrect="off" placeholder="1 . 5/7 6m" />
-        <p id="tx-text-help" className="tx-text-help">Type degree chords separated by spaces. A dot holds the previous chord without playing it again. Each entry gets an equal share of the bar.</p>
-        {draftError && <p id="tx-text-error" className="tx-text-error" role="alert">{draftError} Your last valid bar is saved.<button onClick={clearDraft}>Discard unfinished edit</button></p>}
-        <div className="tx-edit-fields"><label>Section<input value={bar.section ?? ''} maxLength={80} placeholder="Intro" onChange={event => updateBar(current => ({ ...current, section: event.target.value }))} /></label><button disabled={chart.bars.indexOf(bar) === 0 || Boolean(draftError)} onClick={() => update(current => ({ ...current, bars: moved(current.bars, current.bars.indexOf(bar), -1) }))}>Move earlier</button><button disabled={chart.bars.indexOf(bar) === chart.bars.length - 1 || Boolean(draftError)} onClick={() => update(current => ({ ...current, bars: moved(current.bars, current.bars.indexOf(bar), 1) }))}>Move later</button><button onClick={removeBar}>Remove bar</button></div>
-      </section>}
     </> : <div className="tx-welcome"><h2>Start with a song title</h2><p>Create a transcription above, or audition chords below.</p></div>}
     <section className="tx-audition" aria-label="Chord audition grid"><div className="tx-grid-heading"><div><h2>Find a chord</h2><p>{playback.playing ? 'Chart playback is running. Stop to audition or edit chords.' : bar ? `Editing bar ${chart!.bars.indexOf(bar) + 1}: each chord you play is also added.` : 'Audition only. Select a bar to add chords as you play.'}</p></div><button onClick={stopPlayback}>Stop sound</button></div>
       {audioError && <p role="alert" className="tx-notice">{audioError}</p>}
