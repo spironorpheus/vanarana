@@ -1,5 +1,5 @@
 {
-  "name": "chord-atlas",
+  "name": "vanarana",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --import ./tests/register.mjs --test tests/*.test.mjs"
   },
   "dependencies": {
     "react": "latest",
@@ -17,13 +18,14 @@
     "@eslint/js": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
     "eslint": "latest",
     "eslint-plugin-react-hooks": "latest",
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "jsdom": "^30.1.3",
     "typescript": "latest",
-    "typescript-eslint": "latest"
+    "typescript-eslint": "latest",
+    "vite": "latest"
   }
 }

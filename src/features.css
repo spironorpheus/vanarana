@@ -1,0 +1,24 @@
+.feature-nav { border-bottom: 1px solid var(--line); background: var(--paper); }
+.feature-nav-inner { width: min(1280px, 100%); margin: 0 auto; padding: 10px 42px; display: flex; gap: 8px; }
+.feature-nav a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; border-radius: 7px; color: var(--muted); font-size: 13px; text-decoration: none; }
+.feature-nav a[aria-current] { background: var(--green); color: white; }
+.feature-nav a:hover:not([aria-current]) { background: var(--green-soft); color: var(--green); }
+.feature-nav a:focus-visible { outline: 3px solid var(--ochre); outline-offset: 2px; }
+@media (max-width: 1050px) { .feature-nav-inner { padding-inline: 30px; } }
+@media (max-width: 760px) { .feature-nav-inner { padding-inline: 18px; } }
+.quiz-hub { width: min(1280px, 100%); margin: 0 auto; padding: 45px 42px 70px; }
+.quiz-category-list { display: grid; gap: 36px; margin-top: 36px; }
+.quiz-category-list h2 { font-family: Georgia, serif; font-weight: 500; font-size: 24px; margin-bottom: 8px; }
+.quiz-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 380px)); gap: 16px; }
+.quiz-card { display: block; padding: 24px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); text-decoration: none; color: var(--ink); }
+.quiz-card:hover { border-color: var(--green); background: #f5f7f1; }
+.quiz-card h3 { display: flex; justify-content: space-between; gap: 16px; font-family: Georgia, serif; font-size: 22px; font-weight: 500; margin-bottom: 12px; }
+.quiz-card h3 span { color: var(--green); }
+.quiz-card small { color: var(--green); font-size: 11px; }
+.quiz-breadcrumb { width: min(520px, 100%); margin: 0 auto; padding: 22px 24px 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--muted); }
+.quiz-breadcrumb a { display: inline-flex; align-items: center; min-height: 44px; color: var(--green); text-decoration: none; }
+.quiz-breadcrumb a:hover { text-decoration: underline; }
+.quiz-breadcrumb + .ear-training { padding-top: 16px; }
+.quiz-card:focus-visible, .quiz-breadcrumb a:focus-visible { outline: 3px solid var(--ochre); outline-offset: 3px; }
+@media (max-width: 1050px) { .quiz-hub { padding-inline: 30px; } }
+@media (max-width: 760px) { .quiz-hub { padding: 32px 18px 50px; }.quiz-breadcrumb { padding: 14px 18px 0; }.quiz-card { padding: 20px; } }

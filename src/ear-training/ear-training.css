@@ -1,0 +1,47 @@
+.ear-training { width: min(520px, 100%); margin: 0 auto; padding: 36px 24px 50px; }
+.ear-training button, .ear-training summary { cursor: pointer; touch-action: manipulation; min-height: 44px; }
+.ear-training button:disabled { cursor: default; }
+.ear-training h1 { font-size: 36px; }
+.ear-training h2 { font-family: Georgia, serif; font-weight: 500; font-size: 27px; margin: 18px 0 8px; }
+.ear-training h2:focus { outline: none; }
+.ear-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 28px; }
+.ear-text-button { border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 8px 0; }
+.ear-round-label { font-size: 11px; color: var(--muted); letter-spacing: .7px; }
+.ear-progress { height: 4px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 12px 0 25px; }
+.ear-progress > div { height: 100%; background: var(--green); transition: width .2s; }
+.ear-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 11px; }
+.ear-feedback p { color: var(--muted); font-size: 13px; line-height: 1.65; }
+.ear-player { border: 1px solid var(--line); background: var(--green-soft); padding: 15px 17px; border-radius: 10px; margin: 23px 0; }
+.ear-player-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ear-player-row span { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--green); }
+.ear-play, .ear-primary { background: var(--green); color: white; border: 1px solid var(--green); border-radius: 7px; padding: 12px 17px; font-size: 14px; }
+.ear-play { min-width: 110px; }
+.ear-player input { width: 100%; height: 32px; margin-top: 12px; accent-color: var(--green); }
+.ear-answers { display: grid; gap: 12px; }
+.ear-answer { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-height: 66px !important; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); padding: 17px; text-align: left; }
+.ear-answer strong { font-family: Georgia, serif; font-size: 17px; font-weight: 500; }
+.ear-answer:hover:not(:disabled) { border-color: var(--green); }
+.ear-answer.correct { border-color: #719080; background: var(--green-soft); }
+.ear-answer.wrong { border-color: #b97868; background: #f5e6e3; }
+.ear-feedback { margin-top: 20px; font-size: 13px; }
+.ear-feedback h3 { font-size: 14px; color: var(--green); }
+.ear-feedback.missed h3, .ear-error { color: #a3544b; }
+.ear-primary { width: 100%; margin-top: 17px; min-height: 50px !important; }
+.ear-primary:hover, .ear-play:hover { background: #193d34; }
+.ear-secondary { background: transparent; color: var(--green); }
+.ear-secondary:hover { background: var(--green-soft); }
+.ear-training summary { padding: 12px 0; font-size: 12px; }
+.ear-score { font-size: 64px; font-family: Georgia, serif; margin: 24px 0 10px; }
+.ear-score small { font-size: 27px; color: var(--muted); }
+.ear-results { list-style: none; padding: 0; }
+.ear-results li { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 12px 0; font-size: 12px; line-height: 1.5; }
+.ear-results li > span:last-child { white-space: nowrap; }
+.ear-shuffle { display: flex; align-items: center; gap: 10px; min-height: 48px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+.ear-shuffle input { width: 20px; height: 20px; accent-color: var(--green); }
+.ear-error { font-size: 12px; }
+.ear-training button:focus-visible, .ear-training input:focus-visible, .ear-training summary:focus-visible { outline: 3px solid var(--ochre); outline-offset: 3px; }
+@media (max-width: 760px) { .ear-training { padding: 28px 18px 40px; } }
+@media (prefers-reduced-motion: reduce) { .ear-progress > div { transition: none; } }
+
+.ear-autoplay { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: -10px 0 12px; font-size: 12px; color: var(--muted); }
+.ear-autoplay input { width: 18px; height: 18px; accent-color: var(--green); }

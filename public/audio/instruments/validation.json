@@ -1,0 +1,58 @@
+{
+  "sampleCount": 70,
+  "mixes": [
+    {
+      "example": 1,
+      "peak": 0.3306799816588561,
+      "rms": 0.04603781000090142,
+      "clipped": false
+    },
+    {
+      "example": 2,
+      "peak": 0.2864164859056473,
+      "rms": 0.0620830396655947,
+      "clipped": false
+    },
+    {
+      "example": 3,
+      "peak": 0.28666345247377956,
+      "rms": 0.04316592821851373,
+      "clipped": false
+    },
+    {
+      "example": 4,
+      "peak": 0.32712869967023533,
+      "rms": 0.06138632112803559,
+      "clipped": false
+    },
+    {
+      "example": 5,
+      "peak": 0.302986572496593,
+      "rms": 0.038481708033941686,
+      "clipped": false
+    },
+    {
+      "example": 6,
+      "peak": 0.33913467700282734,
+      "rms": 0.06681915683050951,
+      "clipped": false
+    },
+    {
+      "example": 7,
+      "peak": 0.31201290898025036,
+      "rms": 0.03750609272780518,
+      "clipped": false
+    },
+    {
+      "example": 8,
+      "peak": 0.2876649796962738,
+      "rms": 0.053705129151542984,
+      "clipped": false
+    }
+  ],
+  "mixGain": 0.65,
+  "velocityScale": 127,
+  "attackSeconds": 0.006,
+  "releaseSeconds": 0.18,
+  "note": "Signal checks and spectral pitch audit only; not subjectively auditioned. Peak/RMS scaled linearly from verified 0.24-gain reference mixes to the runtime 0.65 mix gain."
+}

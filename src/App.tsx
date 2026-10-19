@@ -795,7 +795,7 @@ function App() {
         <div className="content">
           <section className="page-heading">
             <div>
-              <p className="eyebrow">Personal voicing library</p>
+              <p className="eyebrow">Vanarana</p>
               <h1>Chords by top note</h1>
               <p className="lede">Find the shape you need by the note you want to sing on top.</p>
             </div>
