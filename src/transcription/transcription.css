@@ -19,7 +19,7 @@
 .tx-settings .tx-chart-heading, .tx-settings .tx-transport { display: contents; }
 .tx-settings .tx-title { grid-column: 1 / -1; }
 .transcription .tx-settings :is(input, select, button) { height: 44px; min-height: 44px; font-family: inherit; font-size: 14px; width: 100%; }
-.tx-settings .tx-play { order: 2; padding-inline: 6px; white-space: nowrap; }
+.tx-settings .tx-play { padding-inline: 6px; white-space: nowrap; }
 .tx-settings .tx-play-status { order: 3; grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; }
 .tx-bars { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
 .transcription .tx-bar { position: relative; display: block; line-height: 1.4; min-height: 48px; min-width: 0; padding: 9px 10px; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 0; text-align: left; font-size: 16px; background: transparent; }
@@ -35,8 +35,8 @@
 .transcription textarea[aria-invalid="true"] { border-color: #a34e3c; }
 .tx-text-help { margin: 8px 0 14px; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .tx-text-error { color: #8e3e2c; font-size: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.tx-chart-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
-.tx-chart-actions span { margin-left: auto; color: var(--muted); font-size: 11px; }
+.tx-chart-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; gap: 8px; }
+.tx-chart-actions span { grid-column: 1 / -1; text-align: right; color: var(--muted); font-size: 11px; }
 .tx-grid-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
 .tx-grid-heading p, .tx-welcome p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 0; }
 .tx-grid-heading > button { flex-shrink: 0; }
@@ -57,7 +57,7 @@
   .tx-settings .tx-target-key { grid-column: 1 / -1; }
   .transcription .tx-settings :is(input, select, button) { font-size: 16px; }
   .transcription .tx-settings .tx-play { font-size: 14px; }
-  .tx-chart-actions span { width: 100%; margin: 2px 0 0; }
+  .tx-chart-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tx-grid th { font-size: 9px; }.tx-grid th:first-child { width: 27px; }.tx-grid td { padding: 2px; }
   .transcription .tx-grid button { font-size: 13px; letter-spacing: -.3px; }
   .tx-grid-heading { align-items: flex-start; }.tx-grid-heading p { font-size: 12px; }.tx-grid-heading h2 { font-size: 23px; }
@@ -72,15 +72,10 @@
 
 .tx-metronome > span { height: 44px; display: flex; align-items: center; gap: 9px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); font-size: 14px; }
 .transcription .tx-settings .tx-metronome input { width: 18px; height: 18px; min-height: 18px; margin: 0; accent-color: var(--green); }
-@media (max-width: 760px) { .tx-settings .tx-play { grid-column: 1 / -1; }.tx-metronome > span { font-size: 16px; } }
+@media (max-width: 760px) { .tx-metronome > span { font-size: 16px; } }
 
 .transcription .tx-lockable { min-width: 0; padding: 0; border: 0; }
 .transcription .tx-bar.has-melody::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--green); pointer-events: none; }
-.tx-melody-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; }
-.tx-melody-controls > span { font-size: 12px; color: var(--muted); }
 .transcription fieldset.tx-settings { margin-inline: 0; margin-top: 0; }
-.tx-melody-controls { align-items: flex-end; }
-.tx-melody-controls .tx-recording-rate { flex: 0 0 120px; }
-.tx-melody-controls .tx-recording-rate select { height: 44px; min-height: 44px; }
-.tx-melody-controls > span { align-self: center; }
 @media (max-width: 760px) { .transcription .tx-recording-rate select { font-size: 16px; } }
+.transcription .tx-settings .tx-chart-actions button { padding-inline: 6px; font-size: 14px; white-space: nowrap; }

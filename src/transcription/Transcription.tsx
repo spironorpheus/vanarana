@@ -320,7 +320,6 @@ export default function Transcription({ active }: { active: boolean }) {
           {mode === 'letters' && <label className="tx-target-key">Render & play in<select aria-label="Render and play in" value={key} onChange={event => { setTargetKey(Number(event.target.value)); stopPlayback() }}>{KEYS.map((label, index) => <option value={index} key={label}>{label} major</option>)}</select></label>}
         </div>
         <div className="tx-transport" aria-label="Chart playback">
-          <button className="tx-primary tx-play" disabled={!chart.bars.length || Boolean(draftError)} onClick={playback.playing ? stopPlayback : playChart}>{playback.playing ? 'Stop playback' : selectedBar ? `Play from bar ${visibleBars.findIndex(item => item.id === selectedBar) + 1}` : 'Play chart'}</button>
           <label className="tx-tempo">Tempo (BPM)<input aria-label="Tempo (BPM)" type="number" min={MIN_BPM} max={MAX_BPM} step="1" defaultValue={chart.bpm ?? DEFAULT_BPM} key={`${chart.id}:${chart.bpm}`} onBlur={event => {
             const value = Number(event.target.value)
             const bpm = Number.isFinite(value) ? Math.max(MIN_BPM, Math.min(MAX_BPM, Math.round(value))) : DEFAULT_BPM
@@ -329,6 +328,14 @@ export default function Transcription({ active }: { active: boolean }) {
           }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>
           <label className="tx-metronome">Metronome<span><input aria-label="Metronome" type="checkbox" checked={chart.metronome !== false} onChange={event => update(current => ({ ...current, metronome: event.target.checked }))} />{chart.metronome !== false ? 'On' : 'Off'}</span></label>
           {playback.playing && !recording && <span className="tx-play-status" aria-live="polite">{playback.countInBeatsRemaining ? `Count in: ${playback.countInBeatsRemaining}` : `Playing bar ${(playback.barIndex ?? chart.bars.findIndex(item => item.id === playback.barId)) + 1}`}</span>}
+        </div>
+          <label className="tx-recording-rate">Recording speed<select aria-label="Recording speed" disabled={recording || playback.playing} value={chart.recordingRate ?? 1} onChange={event => update(current => ({ ...current, recordingRate: Number(event.target.value) as 1 | 0.5 }))}><option value={1}>1×</option><option value={0.5}>½×</option></select></label>
+        <div className="tx-chart-actions" aria-label="Chart actions">
+          <button className="tx-primary tx-play" disabled={!chart.bars.length || Boolean(draftError)} onClick={playback.playing ? stopPlayback : playChart}>{playback.playing ? 'Stop playback' : selectedBar ? `Play from bar ${visibleBars.findIndex(item => item.id === selectedBar) + 1}` : 'Play chart'}</button>
+          <button ref={recordButton} className="tx-primary" disabled={!bar || Boolean(draftError) || playback.playing || recording} onClick={startRecording}>Record melody</button>
+          <button disabled={!bar || playback.playing || recording} onClick={() => chooseBar(null)}>Done editing</button>
+          <button disabled={!undoTake || playback.playing || recording} onClick={() => { if (!undoTake) return; stopPlayback(); setCharts(undoTake); setUndoTake(null); setRecordingNotice('Previous melody restored.') }}>Undo take</button>
+          <span>{storageFailed ? 'Not saved · export a backup' : 'Saved in this browser'}</span>
         </div>
         </fieldset>
         {playback.error && <p className="tx-notice" role="alert">{playback.error}</p>}
@@ -348,17 +355,7 @@ export default function Transcription({ active }: { active: boolean }) {
             </button>)}</div>
         <p id="tx-inline-help" className="tx-sr-only">Edit in scale degrees: 1 . 5/7 6m. A dot holds the previous chord. Enter to finish.</p>
         {draftError && <p id="tx-text-error" className="tx-text-error" role="alert">{draftError} Last valid bar saved.<button onClick={clearDraft}>Discard unfinished edit</button></p>}
-        <div className="tx-chart-actions">
-          <button disabled={!bar || playback.playing || recording} onClick={() => chooseBar(null)}>Done editing</button>
-          <span>{storageFailed ? 'Not saved · export a backup' : 'Saved in this browser'}</span>
-        </div>
-        <div className="tx-melody-controls">
-          <label className="tx-recording-rate">Recording speed<select aria-label="Recording speed" disabled={recording || playback.playing} value={chart.recordingRate ?? 1} onChange={event => update(current => ({ ...current, recordingRate: Number(event.target.value) as 1 | 0.5 }))}><option value={1}>1×</option><option value={0.5}>½×</option></select></label>
-          <button ref={recordButton} className="tx-primary" disabled={!bar || Boolean(draftError) || playback.playing || recording} onClick={startRecording}>Record melody</button>
-          {undoTake && <button disabled={playback.playing || recording} onClick={() => { stopPlayback(); setCharts(undoTake); setUndoTake(null); setRecordingNotice('Previous melody restored.') }}>Undo take</button>}
-          <span>Select a bar · one-bar count-in</span>
-          <span className="tx-sr-only" role="status">{recordingNotice}</span>
-        </div>
+        <span className="tx-sr-only" role="status">{recordingNotice}</span>
         {takeFailed && <div className="tx-notice" role="alert">The take is still in memory. Download it before leaving, or discard it to keep the old melody.
           <button onClick={() => {
             const pending = take.current

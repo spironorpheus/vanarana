@@ -55,3 +55,5 @@ Count-in keyboard monitoring is enabled after audio preparation. Track pre-roll 
 RecordingDialog owns a body portal, background inert state, focus trapping, and fixed-body scroll locking. Restore original inline styles, inert/aria-hidden attributes, focus with preventScroll, and exact scroll coordinates on every exit. Keep the Stop header outside the keyboard scroller; modal sizing includes dynamic viewport and safe-area insets.
 
 Recording must not clear in-flow notices or add a background transport-status row before the dialog captures scroll. Keep existing notices stable; announce recording results in the existing out-of-flow live region so closing cannot shift the chart by inserting a banner.
+
+Keep chart editing/recording actions in the top settings grid. Done and Undo stay mounted (disabled when unavailable), preventing selection or a completed take from adding/removing toolbar rows above the chart. Recording speed is a normal aligned settings field; avoid recreating a lower recording panel.

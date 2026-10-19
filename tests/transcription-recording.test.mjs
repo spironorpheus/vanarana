@@ -63,7 +63,7 @@ test('recording starts selected bar with count-in; cancellation leaves melody un
     assert.equal(document.querySelector('[role="dialog"]'), null)
     assert.equal(document.querySelector('.tx-melody-keyboard'), null, 'keyboard does not take inline chart space')
     assert.equal(document.activeElement, ui.button('Record melody'), 'focus returns after the trigger is re-enabled')
-    assert.equal(ui.button('Undo take'), undefined)
+    assert.equal(ui.button('Undo take').disabled, true, 'Undo reserves toolbar space even when no take is available')
   } finally { await ui.close() }
 })
 
@@ -76,10 +76,27 @@ test('recording keeps an existing notice unchanged through count-in cancellation
     const notice = document.querySelector('.tx-notice')
     assert.ok(notice, 'an invalid backup creates an existing in-flow notice')
     const noticeText = notice.textContent
+    const settings = document.querySelector('.tx-settings')
+    const actions = document.querySelector('.tx-chart-actions')
+    const speed = ui.label('Recording speed')
+    const scrollCalls = []
+    Object.defineProperties(ui.dom.window, {
+      scrollX: { configurable: true, writable: true, value: 0 },
+      scrollY: { configurable: true, writable: true, value: 640 },
+    })
+    ui.dom.window.scrollTo = options => {
+      scrollCalls.push(options)
+      ui.dom.window.scrollX = options.left
+      ui.dom.window.scrollY = options.top
+    }
     const assertNoticeUnchanged = () => {
       assert.equal(document.querySelectorAll('.tx-notice').length, 1, 'recording never adds an in-flow notice')
       assert.equal(document.querySelector('.tx-notice'), notice, 'recording preserves the existing notice element')
       assert.equal(notice.textContent, noticeText, 'recording never replaces the existing notice text')
+      assert.equal(document.querySelector('.tx-settings'), settings, 'recording preserves the top settings panel')
+      assert.equal(document.querySelector('.tx-chart-actions'), actions, 'recording preserves the action row')
+      assert.equal(ui.label('Recording speed'), speed, 'recording preserves the speed selector')
+      assert.equal(document.querySelector('.tx-melody-controls'), null)
     }
 
     await ui.click(ui.label('Select bar 1'))
@@ -91,6 +108,9 @@ test('recording keeps an existing notice unchanged through count-in cancellation
       assert.equal(dialog.getAttribute('aria-modal'), 'true')
       assert.equal(document.activeElement, ui.button('Stop recording'))
       assert.equal(document.getElementById('root').getAttribute('inert'), '')
+      assert.equal(document.body.style.position, 'fixed')
+      assert.equal(document.body.style.top, '-640px', 'the modal locks the page at its original scroll position')
+      ui.dom.window.scrollY = 0
       assertNoticeUnchanged()
       assert.equal(document.querySelector('.tx-play-status'), null, 'count-in status is confined to the dialog')
       assert.match(dialog.textContent, /Count in: 4/)
@@ -114,6 +134,9 @@ test('recording keeps an existing notice unchanged through count-in cancellation
       assert.equal(document.querySelector('.tx-melody-keyboard'), null)
       assert.equal(document.getElementById('root').hasAttribute('inert'), false)
       assert.equal(document.getElementById('root').hasAttribute('aria-hidden'), false)
+      assert.equal(document.body.style.position, '', 'stopping releases the page scroll lock')
+      assert.equal(ui.dom.window.scrollY, 640, 'stopping restores the original chart scroll position')
+      assert.deepEqual(scrollCalls.at(-1), { left: 0, top: 640, behavior: 'instant' })
       assert.equal(document.activeElement, trigger, 'focus returns to the re-enabled Record button')
       assert.equal(trigger.disabled, false)
       if (saveTake) {
@@ -146,19 +169,30 @@ test('recording results do not insert an in-flow banner when no notice existed',
 test('silent take replaces every covered bar, preserves others and supports undo', async () => {
   const ui = await setup()
   try {
+    const undo = ui.button('Undo take')
+    assert.equal(undo.disabled, true)
+    assert.ok(undo.closest('.tx-settings'), 'Undo belongs to the top toolbar before a take is available')
     await ui.click(ui.label('Select bar 2'))
     await ui.click(ui.button('Record melody'))
+    assert.equal(ui.button('Undo take'), undo, 'recording does not replace the reserved Undo button')
+    assert.equal(undo.disabled, true)
     await ui.tick(4.25)
     await ui.click(ui.button('Stop recording'))
     assert.deepEqual(ui.saved().bars[0].melody, ui.chart.bars[0].melody)
     assert.equal(ui.saved().bars[1].melody?.length ?? 0, 0)
     assert.equal(ui.saved().bars[2].melody?.length ?? 0, 0)
     assert.deepEqual(ui.saved().bars[3].melody, ui.chart.bars[3].melody)
+    assert.equal(ui.button('Undo take'), undo)
+    assert.equal(undo.disabled, false, 'saving a take enables the existing Undo button')
     await ui.click(ui.button('Record melody'))
+    assert.equal(undo.disabled, true, 'a new recording temporarily disables Undo')
     await ui.click(ui.button('Stop recording'))
-    assert.ok(ui.button('Undo take'), 'cancelling a count-in keeps the prior undo available')
-    await ui.click(ui.button('Undo take'))
+    assert.equal(ui.button('Undo take'), undo)
+    assert.equal(undo.disabled, false, 'cancelling a count-in keeps the prior undo available')
+    await ui.click(undo)
     assert.deepEqual(ui.saved(), ui.chart)
+    assert.equal(ui.button('Undo take'), undo, 'using Undo keeps the button mounted')
+    assert.equal(undo.disabled, true, 'using Undo disables it until another take is saved')
   } finally { await ui.close() }
 })
 
@@ -256,6 +290,8 @@ test('half-speed choice persists, locks during recording and never changes ordin
   const ui = await setup()
   try {
     const speed = ui.label('Recording speed')
+    assert.ok(speed.closest('.tx-settings'), 'recording speed is a top-level chart setting')
+    assert.ok([...speed.labels].some(label => label.textContent.includes('Recording speed')), 'recording speed has an associated visible label')
     assert.equal(speed.value, '1')
     await act(async () => { speed.value = '0.5'; speed.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })) })
     assert.equal(ui.saved().recordingRate, 0.5)
@@ -328,7 +364,7 @@ test('held count-in cancellation keeps prior melody and audio loading alone gate
     await ui.event(ui.label('Play C4'), 'pointerdown', 2)
     await ui.click(ui.button('Stop recording'))
     assert.deepEqual(ui.saved(), ui.chart)
-    assert.equal(ui.button('Undo take'), undefined)
+    assert.equal(ui.button('Undo take').disabled, true)
     assert.equal(ui.notes.length, 2)
   } finally { await ui.close() }
 })
