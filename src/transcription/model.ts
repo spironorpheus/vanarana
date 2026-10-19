@@ -19,6 +19,7 @@ export interface Chart {
   id: string
   name: string
   sourceKey: number
+  bpm?: number
   bars: Bar[]
 }
 
@@ -45,6 +46,10 @@ const DEGREE_LETTERS = [0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6]
 const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 const NATURAL_PITCHES = [0, 2, 4, 5, 7, 9, 11]
 const QUALITY_BY_ID = new Map(QUALITIES.map(quality => [quality.id, quality]))
+
+export const DEFAULT_BPM = 120
+export const MIN_BPM = 40
+export const MAX_BPM = 240
 
 export const STORAGE_KEY = 'vanarana.transcriptions.v1'
 export const STORAGE_VERSION = 1
@@ -161,6 +166,10 @@ function validateCharts(value: unknown): Chart[] {
       name: boundedText(input.name, `${label} name`, 160, false),
       sourceKey: pitchClass(input.sourceKey, `${label} source key`),
       bars: [],
+    }
+    if (input.bpm !== undefined) {
+      if (typeof input.bpm !== 'number' || !Number.isInteger(input.bpm) || input.bpm < MIN_BPM || input.bpm > MAX_BPM) throw new Error(`Tempo must be a whole number from ${MIN_BPM} to ${MAX_BPM} BPM.`)
+      chart.bpm = input.bpm
     }
     chart.bars = list(input.bars, `${label} bars`, MAX_BARS_PER_CHART).map((barValue, barIndex) => {
       const barLabel = `${label}, bar ${barIndex + 1}`

@@ -58,3 +58,10 @@
   .tx-edit-fields label { max-width: none; }.tx-edit-fields > button { flex: 1; }
 }
 @media (max-width: 360px) { .tx-chart, .tx-edit, .tx-audition { padding: 10px; }.transcription .tx-grid button { font-size: 12px; } }
+.tx-transport { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 0 0 18px; }
+.tx-transport label { width: 110px; }
+.tx-transport > span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.tx-bar.is-playing { background: #f8edda; border-color: var(--ochre); box-shadow: inset 0 0 0 2px var(--ochre); }
+.transcription .tx-chips .is-sounding { background: var(--ochre); color: white; border-color: var(--ochre); opacity: 1; }
+.tx-bar.is-playing .tx-bar-select { color: var(--ink); opacity: 1; }
+@media (max-width: 760px) { .tx-transport > span { flex-basis: 100%; }.tx-transport > button { flex: 1; } }

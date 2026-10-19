@@ -200,3 +200,11 @@ test('blocked storage, throwing accessors, and quota errors return safe failure 
   assert.match(loadCharts().error, /unavailable/)
   assert.match(saveCharts([chart()]).error, /unavailable/)
 })
+
+
+test('tempo is optional for old charts and round-trips with validated bounds', () => {
+  const chart = createChart('Tempo')
+  assert.equal(parseCharts(serializeCharts([chart]))[0].bpm, undefined)
+  for (const bpm of [40, 120, 240]) assert.equal(parseCharts(serializeCharts([{ ...chart, bpm }]))[0].bpm, bpm)
+  for (const bpm of [0, 39, 241, 100.5, NaN, Infinity, '120']) assert.throws(() => serializeCharts([{ ...chart, bpm }]), /Tempo/)
+})

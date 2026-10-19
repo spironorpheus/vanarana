@@ -218,3 +218,50 @@ test('partial scheduling failure cleans already-created nodes and permits retry'
   assert.equal(sources.length, 3)
   assert.equal(sources.at(-1).disconnected, false)
 })
+
+test('prepare activates synchronously without notes and cancellation suppresses late failures', async t => {
+  const pending = deferred()
+  const { player, contexts, sources } = setup(t, { resume: () => pending.promise })
+  const ready = player.prepare()
+  assert.equal(contexts.length, 1)
+  assert.equal(contexts[0].resumeCalls, 1)
+  assert.equal(sources.length, 0)
+  player.stop(true)
+  await ready
+  pending.reject(new Error('Obsolete activation'))
+  await flush()
+  contexts[0].state = 'running'
+  await player.prepare()
+  assert.equal(sources.length, 0)
+  await player.play([69])
+  assert.equal(sources.length, 1)
+})
+
+test('sequence durations sustain to a bounded release and never extend on stop', async t => {
+  const { player, audio, sources, gains } = setup(t)
+  await player.play([60], { durationSeconds: 4 })
+  assert.equal(sources[0].stops[0], 4)
+  assert.deepEqual(gains[0].gain.events.at(-2), ['set', 0.3 * 0.55, 3.965])
+  assert.deepEqual(gains[0].gain.events.at(-1), ['ramp', 0, 4])
+  audio.advance(3.99)
+  player.stop()
+  assert.equal(sources[0].stops.at(-1), 4, 'release cannot extend the scheduled duration')
+  audio.advance(0.02)
+  assert.equal(sources[0].disconnected, true)
+  await player.play([64], { durationSeconds: 0.01 })
+  const envelope = gains.at(-1).gain.events
+  assert.ok(envelope.every((event, i) => i === 0 || event[2] >= envelope[i - 1][2]), 'short note envelope is monotonic')
+  audio.advance(0.02)
+  assert.equal(sources.at(-1).disconnected, true)
+})
+
+test('immediate stop cuts every voice without a release tail and invalid durations reject', async t => {
+  const { player, sources, gains } = setup(t)
+  for (const durationSeconds of [0, -1, NaN, Infinity]) {
+    await assert.rejects(player.play([60], { durationSeconds }), /duration must be a positive number/)
+  }
+  await player.play([60, 64, 67], { durationSeconds: 2 })
+  player.stop(true)
+  assert.ok(sources.every(source => source.stopped && source.disconnected && source.stops.at(-1) === undefined))
+  assert.ok(gains.every(gain => gain.disconnected))
+})

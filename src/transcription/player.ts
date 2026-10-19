@@ -3,6 +3,10 @@ type Voice = {
   gain: GainNode
   startedAt: number
   peak: number
+  attack: number
+  decay: number
+  releaseStart: number
+  duration: number
   releasing: boolean
   cleanupTimer: ReturnType<typeof setTimeout> | null
 }
@@ -14,6 +18,11 @@ const DURATION_SECONDS = 1.4
 const STOP_RELEASE_SECONDS = 0.035
 const SUSTAIN = 0.55
 
+export interface ChordPlaybackOptions {
+  /** Sustain for this interval, releasing to silence exactly at its end. */
+  durationSeconds?: number
+}
+
 /** A small, isolated synth for auditioning a transcription's exact MIDI pitches. */
 export class ChordPlayer {
   private context: AudioContext | null = null
@@ -23,7 +32,7 @@ export class ChordPlayer {
   private disposed = false
 
   /** Invoke directly from a click/key handler to preserve browser audio activation. */
-  async play(midi: number[]): Promise<void> {
+  async play(midi: number[], options: ChordPlaybackOptions = {}): Promise<void> {
     if (this.disposed) return
     this.stop()
     const request = this.request
@@ -32,21 +41,18 @@ export class ChordPlayer {
     if (notes.some(note => !Number.isInteger(note) || note < 0 || note > 127)) {
       throw new Error('This chord contains an invalid MIDI pitch.')
     }
+    const duration = options.durationSeconds ?? DURATION_SECONDS
+    const timed = options.durationSeconds !== undefined
+    if (!Number.isFinite(duration) || duration <= 0) throw new Error('Chord duration must be a positive number.')
     if (!notes.length) return
 
     try {
-      const context = this.getContext()
-      // Both construction and resume must happen before the first await (Safari).
-      const resumed = context.state === 'running' ? Promise.resolve() : context.resume()
-      const cancelled = new Promise<void>(resolve => { this.cancelResume = resolve })
-      await Promise.race([resumed, cancelled])
-      if (this.disposed || request !== this.request) return
-      this.cancelResume = null
-      if (context.state !== 'running') throw new Error('Your browser paused audio. Try playing the chord again.')
+      const context = await this.activate(request)
+      if (!context || this.disposed || request !== this.request) return
       const startedAt = context.currentTime
       // The sum of all voice peaks stays bounded even for a large voicing.
       const peak = 0.3 / notes.length
-      for (const note of notes) this.scheduleVoice(context, note, startedAt, peak)
+      for (const note of notes) this.scheduleVoice(context, note, startedAt, peak, duration, timed)
     } catch (error) {
       if (this.disposed || request !== this.request) return
       this.cancelResume = null
@@ -55,12 +61,38 @@ export class ChordPlayer {
     }
   }
 
+  /** Activate audio directly in the user gesture, even when a chart starts with a rest. */
+  async prepare(): Promise<void> {
+    if (this.disposed) return
+    this.stop()
+    await this.activate(this.request)
+  }
+
   /** Cancel pending activation and gently release any sounding chord. */
-  stop(): void {
+  stop(immediate = false): void {
     this.request++
     this.cancelResume?.()
     this.cancelResume = null
-    this.stopVoices()
+    this.stopVoices(immediate)
+  }
+
+  private async activate(request: number): Promise<AudioContext | null> {
+    try {
+      const context = this.getContext()
+      // Both construction and resume happen before the first await (Safari).
+      const resumed = context.state === 'running' ? Promise.resolve() : context.resume()
+      const cancelled = new Promise<void>(resolve => { this.cancelResume = resolve })
+      await Promise.race([resumed, cancelled])
+      if (this.disposed || request !== this.request) return null
+      this.cancelResume = null
+      if (context.state !== 'running') throw new Error('Your browser paused audio. Try playing the chord again.')
+      return context
+    } catch (error) {
+      if (this.disposed || request !== this.request) return null
+      this.cancelResume = null
+      this.stopVoices(true)
+      throw error instanceof Error ? error : new Error('Chord audio could not play. Please try again.')
+    }
   }
 
   dispose(): void {
@@ -92,25 +124,28 @@ export class ChordPlayer {
     return context
   }
 
-  private scheduleVoice(context: AudioContext, note: number, startedAt: number, peak: number): void {
+  private scheduleVoice(context: AudioContext, note: number, startedAt: number, peak: number, duration: number, timed: boolean): void {
     const source = context.createOscillator()
     let gain: GainNode
     try { gain = context.createGain() } catch (error) { source.disconnect(); throw error }
-    const voice: Voice = { source, gain, startedAt, peak, releasing: false, cleanupTimer: null }
+    const attack = timed ? Math.min(ATTACK_SECONDS, duration * 0.1) : ATTACK_SECONDS
+    const decay = timed ? Math.min(DECAY_SECONDS, duration * 0.35) : DECAY_SECONDS
+    const releaseStart = timed ? duration - Math.min(STOP_RELEASE_SECONDS, duration * 0.2) : RELEASE_START_SECONDS
+    const voice: Voice = { source, gain, startedAt, peak, attack, decay, releaseStart, duration, releasing: false, cleanupTimer: null }
     this.voices.add(voice)
     source.type = 'triangle'
     source.frequency.setValueAtTime(440 * 2 ** ((note - 69) / 12), startedAt)
     source.connect(gain)
     gain.connect(context.destination)
     gain.gain.setValueAtTime(0, startedAt)
-    gain.gain.linearRampToValueAtTime(peak, startedAt + ATTACK_SECONDS)
-    gain.gain.linearRampToValueAtTime(peak * SUSTAIN, startedAt + DECAY_SECONDS)
-    gain.gain.setValueAtTime(peak * SUSTAIN, startedAt + RELEASE_START_SECONDS)
-    gain.gain.linearRampToValueAtTime(0, startedAt + DURATION_SECONDS)
+    gain.gain.linearRampToValueAtTime(peak, startedAt + attack)
+    gain.gain.linearRampToValueAtTime(peak * SUSTAIN, startedAt + decay)
+    gain.gain.setValueAtTime(peak * SUSTAIN, startedAt + releaseStart)
+    gain.gain.linearRampToValueAtTime(0, startedAt + duration)
     source.onended = () => this.removeVoice(voice)
     source.start(startedAt)
-    source.stop(startedAt + DURATION_SECONDS)
-    this.scheduleCleanup(voice, DURATION_SECONDS)
+    source.stop(startedAt + duration)
+    this.scheduleCleanup(voice, duration)
   }
 
   private stopVoices(immediate = false): void {
@@ -124,15 +159,16 @@ export class ChordPlayer {
         const now = context.currentTime
         // Reconstruct our linear envelope for browsers without cancelAndHoldAtTime.
         const age = Math.max(0, now - voice.startedAt)
-        const level = age < ATTACK_SECONDS ? age / ATTACK_SECONDS
-          : age < DECAY_SECONDS ? 1 - (1 - SUSTAIN) * (age - ATTACK_SECONDS) / (DECAY_SECONDS - ATTACK_SECONDS)
-          : age < RELEASE_START_SECONDS ? SUSTAIN
-          : SUSTAIN * Math.max(0, (DURATION_SECONDS - age) / (DURATION_SECONDS - RELEASE_START_SECONDS))
+        const level = age < voice.attack ? age / voice.attack
+          : age < voice.decay ? 1 - (1 - SUSTAIN) * (age - voice.attack) / (voice.decay - voice.attack)
+          : age < voice.releaseStart ? SUSTAIN
+          : SUSTAIN * Math.max(0, (voice.duration - age) / (voice.duration - voice.releaseStart))
         voice.gain.gain.cancelScheduledValues(now)
         voice.gain.gain.setValueAtTime(voice.peak * level, now)
-        voice.gain.gain.linearRampToValueAtTime(0, now + STOP_RELEASE_SECONDS)
-        try { voice.source.stop(now + STOP_RELEASE_SECONDS) } catch { /* Already ended. */ }
-        this.scheduleCleanup(voice, STOP_RELEASE_SECONDS)
+        const release = Math.max(0, Math.min(STOP_RELEASE_SECONDS, voice.startedAt + voice.duration - now))
+        voice.gain.gain.linearRampToValueAtTime(0, now + release)
+        try { voice.source.stop(now + release) } catch { /* Already ended. */ }
+        this.scheduleCleanup(voice, release)
       }
     }
   }
