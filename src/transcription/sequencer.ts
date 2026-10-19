@@ -8,6 +8,8 @@ export interface ChartPlaybackState {
   error: string | null
   /** Four down to one during the recording count-in; zero once recording starts. */
   countInBeatsRemaining?: number
+  /** Recording keys unlock once piano preparation finishes, including count-in. */
+  audioReady?: boolean
   /** Beats from the selected start, excluding the count-in. */
   elapsedBeats?: number
   /** Absolute chart index, including virtual empty recording bars. */
@@ -93,7 +95,7 @@ export class ChartSequencer {
       // Construction/resume runs in the original gesture, even for an empty bar.
       const prepared = this.player.prepare()
       this.onState({ playing: true, barId: this.slots[0].barId, chordId: null, error: null,
-        ...(this.countIn ? { countInBeatsRemaining: 4 } : {}) })
+        ...(this.countIn ? { countInBeatsRemaining: 4, audioReady: false } : {}) })
       await Promise.race([prepared, cancelled])
       if (!this.isCurrent(request)) return
       this.cancelActivation = null
@@ -190,7 +192,7 @@ export class ChartSequencer {
       if (remaining !== this.lastCount) {
         this.lastCount = remaining
         this.onState({ playing: true, barId: this.slots[0].barId, chordId: null, error: null,
-          countInBeatsRemaining: remaining, elapsedBeats: 0, barIndex: this.slots[0].barIndex })
+          countInBeatsRemaining: remaining, audioReady: true, elapsedBeats: 0, barIndex: this.slots[0].barIndex })
       }
       const nextBeat = this.musicStartedAt - (remaining - 1) * this.secondsPerBeat * 1000
       this.wake(request, nextBeat, now)
@@ -209,7 +211,7 @@ export class ChartSequencer {
       if (changeSound) { this.player.stop(true); this.currentSound = sound }
       this.onState({ playing: true, barId: slot.barId, chordId: slot.chordId, error: null,
         ...(this.countIn || this.options.extendForRecording ? {
-          countInBeatsRemaining: 0, elapsedBeats: this.lastElapsedBeats, barIndex: slot.barIndex,
+          countInBeatsRemaining: 0, audioReady: true, elapsedBeats: this.lastElapsedBeats, barIndex: slot.barIndex,
         } : {}) })
       if (!this.isCurrent(request)) return
       if (changeSound && sound) {

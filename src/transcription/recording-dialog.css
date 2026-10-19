@@ -1,0 +1,82 @@
+.tx-recording-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--paper, #fbfaf6);
+  color: var(--ink, #30332e);
+  overscroll-behavior: none;
+}
+
+.tx-recording-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) 16px max(20px, env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--line, #dfddd4);
+  background: var(--paper, #fbfaf6);
+}
+
+.tx-recording-status { margin: 0; color: var(--muted, #77776d); font-size: 13px; line-height: 1.5; }
+.tx-recording-stop {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid var(--green, #234d42);
+  border-radius: 7px;
+  background: var(--green, #234d42);
+  color: white;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.tx-recording-stop:hover { background: #193d34; }
+.tx-recording-stop:focus-visible { outline: 3px solid var(--ochre, #bf7c35); outline-offset: 3px; }
+
+.tx-recording-content {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(12px, 4vh, 40px) max(20px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* Give the keys the available height without making Stop part of a scroller. */
+.tx-recording-dialog .tx-melody-keyboard {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  max-width: 1200px;
+  height: min(100%, 480px);
+  min-height: 0;
+  margin: 0 auto;
+}
+.tx-recording-dialog .tx-keyboard-scroll { display: flex; flex-direction: column; min-height: 0; overflow-x: auto; overflow-y: hidden; }
+.tx-recording-dialog .tx-keyboard-keys { flex: 1 0 80px; height: auto; }
+.tx-recording-dialog .tx-keyboard-scroll-rail { flex-shrink: 0; }
+
+@media (max-height: 480px) {
+  .tx-recording-header { padding-top: max(8px, env(safe-area-inset-top, 0px)); padding-bottom: 8px; }
+  .tx-recording-content { padding-top: 10px; padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
+  .tx-recording-dialog .tx-keyboard-controls { margin-bottom: 6px; }
+  .tx-recording-dialog .tx-keyboard-scroll-rail { padding-top: 6px; padding-bottom: 6px; }
+  .tx-recording-dialog .tx-keyboard-help { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .tx-recording-dialog .tx-melody-keyboard { grid-template-rows: auto minmax(0, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .tx-recording-header { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+  .tx-recording-content { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+  .tx-recording-status { font-size: 12px; }
+}

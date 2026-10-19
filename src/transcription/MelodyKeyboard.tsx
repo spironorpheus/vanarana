@@ -38,9 +38,25 @@ export default function MelodyKeyboard({ disabled = false, onNoteOn, onNoteOff }
   const instanceId = useId()
   const [octave, setOctave] = useState(4)
   const [pressed, setPressed] = useState<Set<number>>(() => new Set())
+  const keybed = useRef<HTMLDivElement>(null)
   const contacts = useRef(new Map<string, Contact>())
   const nextContact = useRef(0)
   const callbacks = useRef({ onNoteOn, onNoteOff })
+
+  useEffect(() => {
+    const element = keybed.current
+    if (!element) return
+    // iOS may begin a native text-selection/callout gesture on the key label
+    // before contextmenu fires. Keep this native, non-passive guard on the
+    // keybed only; the separate scroll rail and chart text remain untouched.
+    const preventNativeGesture = (event: Event) => event.preventDefault()
+    element.addEventListener('touchstart', preventNativeGesture, { passive: false })
+    element.addEventListener('selectstart', preventNativeGesture)
+    return () => {
+      element.removeEventListener('touchstart', preventNativeGesture)
+      element.removeEventListener('selectstart', preventNativeGesture)
+    }
+  }, [])
 
   useLayoutEffect(() => {
     callbacks.current = { onNoteOn, onNoteOff }
@@ -134,7 +150,7 @@ export default function MelodyKeyboard({ disabled = false, onNoteOn, onNoteOff }
       <button type="button" aria-label="Raise keyboard octave" disabled={disabled || octave === 6} onClick={() => changeOctave(1)}>+ Octave</button>
     </div>
     <div className="tx-keyboard-scroll" role="region" aria-label="Scrollable piano keys" tabIndex={0}>
-      <div className="tx-keyboard-keys">
+      <div ref={keybed} className="tx-keyboard-keys" onContextMenu={event => event.preventDefault()}>
         {Array.from({ length: 24 }, (_, offset) => {
           const pitch = (octave + 1) * 12 + offset
           const note = offset % 12

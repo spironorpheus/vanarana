@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { JSDOM } from 'jsdom'
 import React, { act } from 'react'
 import MelodyKeyboard from '../src/transcription/MelodyKeyboard.tsx'
 
 async function setup(extraProps = {}) {
-  const dom = new JSDOM('<div id="root"></div>', { url: 'https://test.example', pretendToBeVisual: true })
+  const dom = new JSDOM('<section class="tx-chart"><textarea aria-label="Bar chord text"></textarea><div id="root"></div></section>', { url: 'https://test.example', pretendToBeVisual: true })
   const { window } = dom
   for (const name of ['window', 'document', 'navigator', 'HTMLElement']) Object.defineProperty(globalThis, name, { configurable: true, value: window[name] })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -39,6 +40,11 @@ async function setup(extraProps = {}) {
     note: label => document.querySelector(`[aria-label="Play ${label}"]`),
     button: label => document.querySelector(`[aria-label="${label}"]`),
     pointer: async (element, type, id, options) => { let event; await act(async () => { event = pointer(element, type, id, options) }); return event },
+    event: async (element, type) => {
+      const event = new window.Event(type, { bubbles: true, cancelable: true })
+      await act(async () => element.dispatchEvent(event))
+      return event
+    },
     key: async (element, type, key, options = {}) => {
       const event = new window.KeyboardEvent(type, { key, bubbles: true, cancelable: true, ...options })
       await act(async () => element.dispatchEvent(event))
@@ -94,6 +100,120 @@ test('multi-touch gives each pointer its own note lifetime, even on the same pit
     assert.deepEqual(app.stops, app.starts.map(note => note.id))
     assert.equal(e.getAttribute('aria-pressed'), 'false')
     assert.equal(app.captured.size, 0)
+  } finally { await app.close() }
+})
+
+test('keybed and note labels suppress context menus without interrupting held multi-touch notes', async () => {
+  const app = await setup()
+  try {
+    const c = app.note('C4')
+    const e = app.note('E4')
+    await app.pointer(c.querySelector('span'), 'pointerdown', 1)
+    await app.pointer(e, 'pointerdown', 2)
+    for (const target of [c.querySelector('span'), e, document.querySelector('.tx-keyboard-keys')]) {
+      assert.equal((await app.event(target, 'contextmenu')).defaultPrevented, true)
+    }
+    assert.deepEqual(app.starts.map(note => note.pitch), [60, 64])
+    assert.deepEqual(app.stops, [], 'a callout attempt does not release a sustained note')
+    assert.equal(app.captured.size, 2)
+    assert.equal(c.getAttribute('aria-pressed'), 'true')
+    assert.equal(e.getAttribute('aria-pressed'), 'true')
+    for (const target of [document.querySelector('textarea'), document.querySelector('.tx-keyboard-scroll-rail')]) {
+      assert.equal((await app.event(target, 'contextmenu')).defaultPrevented, false)
+    }
+    await app.pointer(app.window, 'pointerup', 1)
+    assert.equal(c.getAttribute('aria-pressed'), 'false')
+    assert.equal(e.getAttribute('aria-pressed'), 'true')
+    await app.pointer(e, 'pointercancel', 2)
+    assert.deepEqual(app.stops, app.starts.map(note => note.id))
+    assert.equal(e.getAttribute('aria-pressed'), 'false')
+    assert.equal(app.captured.size, 0)
+  } finally { await app.close() }
+})
+
+test('native selection guard is scoped to keys and labels, leaving chart editing and the scroll rail alone', async () => {
+  const app = await setup()
+  try {
+    for (const target of [document.querySelector('.tx-keyboard-keys'), app.note('C4'), app.note('C4').querySelector('span')]) {
+      assert.equal((await app.event(target, 'selectstart')).defaultPrevented, true)
+    }
+    const textarea = document.querySelector('textarea')
+    for (const target of [textarea, document.querySelector('.tx-keyboard-scroll-rail'), document.querySelector('.tx-keyboard-scroll'), app.button('Lower keyboard octave')]) {
+      assert.equal((await app.event(target, 'selectstart')).defaultPrevented, false)
+    }
+    textarea.value = 'Cmaj7 Am7'
+    textarea.focus()
+    textarea.setSelectionRange(0, 5)
+    assert.equal(document.activeElement, textarea)
+    assert.equal(textarea.value.slice(textarea.selectionStart, textarea.selectionEnd), 'Cmaj7')
+    assert.deepEqual(app.starts, [])
+  } finally { await app.close() }
+})
+
+test('non-passive keybed touch guard preserves pointer note lifetimes and does not block rail gestures', async () => {
+  const app = await setup()
+  try {
+    const c = app.note('C4')
+    const e = app.note('E4')
+    await app.pointer(c, 'pointerdown', 1)
+    assert.equal((await app.event(c.querySelector('span'), 'touchstart')).defaultPrevented, true)
+    await app.pointer(e, 'pointerdown', 2)
+    assert.equal((await app.event(e, 'touchstart')).defaultPrevented, true)
+    assert.equal((await app.event(document.querySelector('.tx-keyboard-keys'), 'touchstart')).defaultPrevented, true)
+    assert.deepEqual(app.starts.map(note => note.pitch), [60, 64], 'touch handling does not double-trigger pointer notes')
+    assert.deepEqual(app.stops, [])
+    const rail = document.querySelector('.tx-keyboard-scroll-rail')
+    for (const target of [rail, document.querySelector('.tx-keyboard-scroll'), document.querySelector('textarea')]) {
+      assert.equal((await app.event(target, 'touchstart')).defaultPrevented, false)
+      assert.equal((await app.event(target, 'touchmove')).defaultPrevented, false)
+    }
+    await app.pointer(rail, 'pointerup', 1)
+    assert.deepEqual(app.stops, [app.starts[0].id])
+    assert.equal(e.getAttribute('aria-pressed'), 'true')
+    await app.pointer(app.window, 'pointercancel', 2)
+    await app.pointer(e, 'pointerup', 2)
+    assert.deepEqual(app.stops, app.starts.map(note => note.id))
+    assert.equal(app.captured.size, 0)
+  } finally { await app.close() }
+})
+
+test('native callout guards are removed from the keybed on unmount', async () => {
+  const app = await setup()
+  let closed = false
+  try {
+    const keybed = document.querySelector('.tx-keyboard-keys')
+    await app.close()
+    closed = true
+    for (const type of ['selectstart', 'touchstart']) {
+      assert.equal((await app.event(keybed, type)).defaultPrevented, false)
+    }
+  } finally { if (!closed) await app.close() }
+})
+
+test('WebKit selection and callout CSS covers the entire keybed and labels without leaking into the chart', async () => {
+  const app = await setup()
+  try {
+    // jsdom cannot reproduce Safari's native callout UI, so verify the authored declarations.
+    // Read source because jsdom also discards unsupported -webkit-touch-callout declarations.
+    const css = readFileSync(new URL('../src/transcription/melody-keyboard.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({
+      selector: selector.trim(),
+      declarations: new Map(body.split(';').filter(Boolean).map(declaration => declaration.split(':').map(part => part.trim()))),
+    }))
+    const valuesFor = (element, property) => rules
+      .filter(rule => element.matches(rule.selector))
+      .map(rule => rule.declarations.get(property))
+      .filter(Boolean)
+    for (const target of [document.querySelector('.tx-keyboard-keys'), app.note('C4'), app.note('C4').querySelector('span'), app.note('C sharp 4').querySelector('span')]) {
+      for (const property of ['user-select', '-webkit-user-select', '-webkit-touch-callout']) {
+        assert.equal(valuesFor(target, property).at(-1), 'none', `${property} protects ${target.className || target.tagName}`)
+      }
+    }
+    for (const target of [document.querySelector('textarea'), document.querySelector('.tx-chart'), document.querySelector('.tx-keyboard-scroll'), document.querySelector('.tx-keyboard-scroll-rail')]) {
+      for (const property of ['-webkit-user-select', '-webkit-touch-callout']) {
+        assert.ok(!valuesFor(target, property).includes('none'), `${property} stays scoped to the playable keybed`)
+      }
+    }
   } finally { await app.close() }
 })
 

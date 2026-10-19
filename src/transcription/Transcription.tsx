@@ -4,6 +4,7 @@ import { ChordPlayer } from './player'
 import { ChartSequencer, type SequenceState } from './sequencer'
 import { replaceMelodyTake, sourceMelodyPitch, type RecordedMelodyNote } from './melody'
 import MelodyKeyboard from './MelodyKeyboard'
+import RecordingDialog from './RecordingDialog'
 import './transcription.css'
 
 const STORAGE = 'vanarana.transcriptions.v1'
@@ -56,6 +57,8 @@ export default function Transcription({ active }: { active: boolean }) {
   const [recording, setRecording] = useState(false)
   const [undoTake, setUndoTake] = useState<Chart[] | null>(null)
   const take = useRef<Take | null>(null)
+  const recordButton = useRef<HTMLButtonElement>(null)
+  const restoreRecordFocus = useRef(false)
   const [emptyBarId, setEmptyBarId] = useState(makeId)
   const [playback, setPlayback] = useState<SequenceState>({ playing: false, barId: null, chordId: null, error: null })
   const sequencer = useRef<ChartSequencer | null>(null)
@@ -73,6 +76,7 @@ export default function Transcription({ active }: { active: boolean }) {
     current.held.clear()
     sequencer.current?.stop()
     player.current?.stopMelody()
+    restoreRecordFocus.current = true
     setRecording(false)
     setTakeFailed(false)
     if (beat <= 0) { setMessage('Count-in cancelled. Melody unchanged.'); return }
@@ -155,6 +159,13 @@ export default function Transcription({ active }: { active: boolean }) {
     }
   }, [selectedBar])
 
+  useEffect(() => {
+    if (!recording && restoreRecordFocus.current) {
+      restoreRecordFocus.current = false
+      if (active) recordButton.current?.focus({ preventScroll: true })
+    }
+  }, [recording, active])
+
   const stopPlayback = () => { finishRecording(); sequencer.current?.stop(); player.current?.stop(); player.current?.stopMelody() }
   const playChart = () => {
     if (!chart || draftError) return
@@ -177,9 +188,11 @@ export default function Transcription({ active }: { active: boolean }) {
     player.current ??= new ChordPlayer()
     const current = take.current
     const beat = sequencer.current?.getRecordingBeat() ?? null
-    if (current && beat !== null && !current.held.has(id)) {
-      current.lastBeat = beat
-      current.held.set(id, { pitch: sourceMelodyPitch(pitch, current.chart.sourceKey, current.key), startBeat: beat })
+    if (current && !current.held.has(id)) {
+      // Count-in attacks are monitored now and owned by beat zero only if
+      // still held when the recording starts. No new attack at that boundary.
+      current.lastBeat = beat ?? 0
+      current.held.set(id, { pitch: sourceMelodyPitch(pitch, current.chart.sourceKey, current.key), startBeat: beat ?? 0 })
     }
     void player.current.startMelodyNote(id, pitch).catch(error => setAudioError(error instanceof Error ? error.message : 'Melody audio could not play.'))
   }
@@ -340,7 +353,7 @@ export default function Transcription({ active }: { active: boolean }) {
         </div>
         <div className="tx-melody-controls">
           <label className="tx-recording-rate">Recording speed<select aria-label="Recording speed" disabled={recording || playback.playing} value={chart.recordingRate ?? 1} onChange={event => update(current => ({ ...current, recordingRate: Number(event.target.value) as 1 | 0.5 }))}><option value={1}>1×</option><option value={0.5}>½×</option></select></label>
-          <button className="tx-primary" disabled={!bar || Boolean(draftError) || (playback.playing && !recording)} onClick={recording ? () => finishRecording() : startRecording}>{recording ? 'Stop recording' : 'Record melody'}</button>
+          <button ref={recordButton} className="tx-primary" disabled={!bar || Boolean(draftError) || playback.playing || recording} onClick={startRecording}>Record melody</button>
           {undoTake && <button disabled={playback.playing || recording} onClick={() => { stopPlayback(); setCharts(undoTake); setUndoTake(null); setMessage('Previous melody restored.') }}>Undo take</button>}
           <span aria-live="polite">{recording ? playback.countInBeatsRemaining ? `Count in: ${playback.countInBeatsRemaining}` : 'Recording · stop replaces covered bars' : 'Select a bar · one-bar count-in'}</span>
         </div>
@@ -354,7 +367,9 @@ export default function Transcription({ active }: { active: boolean }) {
           }}>Download take</button>
           <button onClick={() => { take.current = null; setRecording(false); setTakeFailed(false); setAudioError(''); setMessage('Take discarded. Previous melody kept.') }}>Discard take</button>
         </div>}
-        {(bar || recording) && <MelodyKeyboard disabled={takeFailed || (playback.playing && !recording) || Boolean(recording && playback.countInBeatsRemaining)} onNoteOn={melodyOn} onNoteOff={melodyOff} />}
+        {recording && !takeFailed && <RecordingDialog onStop={() => finishRecording()} status={playback.audioReady !== true ? 'Preparing audio…' : playback.countInBeatsRemaining ? `Count in: ${playback.countInBeatsRemaining}` : 'Recording'}>
+          <MelodyKeyboard disabled={playback.audioReady !== true} onNoteOn={melodyOn} onNoteOff={melodyOff} />
+        </RecordingDialog>}
       </section>
     </> : <div className="tx-welcome"><h2>Start with a song title</h2><p>Create a transcription above, or audition chords below.</p></div>}
     <section className="tx-audition" aria-label="Chord audition grid"><div className="tx-grid-heading"><div><h2>Find a chord</h2><p>{playback.playing ? 'Chart playback is running. Stop to audition or edit chords.' : bar ? `Editing bar ${visibleBars.indexOf(bar) + 1}: each chord you play is also added.` : 'Audition only. Select a bar to add chords as you play.'}</p></div><button onClick={stopPlayback}>Stop sound</button></div>

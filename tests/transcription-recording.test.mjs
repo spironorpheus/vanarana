@@ -11,12 +11,13 @@ async function setup() {
   const dom = new JSDOM('<div id="root"></div>', { url: 'https://test.example', pretendToBeVisual: true })
   for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'localStorage']) Object.defineProperty(globalThis, name, { configurable: true, value: dom.window[name] })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  dom.window.scrollTo = () => {}
   const originals = []
   const stub = (prototype, key, value) => { originals.push([prototype, key, prototype[key]]); prototype[key] = value }
   let beat = null, sequence, request
   stub(ChartSequencer.prototype, 'play', async function(chart, key, start, options) {
     sequence = this; request = { chart, key, start, options }; beat = null
-    this.onState({ playing: true, barId: start, chordId: null, error: null, countInBeatsRemaining: 4, elapsedBeats: 0 })
+    this.onState({ playing: true, barId: start, chordId: null, error: null, countInBeatsRemaining: 4, audioReady: true, elapsedBeats: 0 })
   })
   stub(ChartSequencer.prototype, 'getRecordingBeat', () => beat)
   stub(ChartSequencer.prototype, 'stop', function() { this.onState({ playing: false, barId: null, chordId: null, error: null }); beat = null })
@@ -39,7 +40,9 @@ async function setup() {
   })
   return { dom, chart, label, button, click, event, notes, request: () => request,
     saved: () => parseCharts(localStorage.getItem('vanarana.transcriptions.v1'))[0],
-    tick: async value => act(async () => { beat = value; sequence.onState({ playing: true, barId: chart.bars[Math.min(3, Math.floor(value / 4))].id, chordId: null, error: null, elapsedBeats: value, barIndex: Math.floor(value / 4) }) }),
+    loading: async () => act(async () => sequence.onState({ playing: true, barId: chart.bars[0].id, chordId: null, error: null, countInBeatsRemaining: 4, audioReady: false })),
+    ready: async () => act(async () => sequence.onState({ playing: true, barId: chart.bars[0].id, chordId: null, error: null, countInBeatsRemaining: 4, audioReady: true })),
+    tick: async value => act(async () => { beat = value; sequence.onState({ playing: true, barId: chart.bars[Math.min(3, Math.floor(value / 4))].id, chordId: null, error: null, audioReady: true, elapsedBeats: value, barIndex: Math.floor(value / 4) }) }),
     hide: async () => act(async () => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new dom.window.Event('visibilitychange')) }),
     navigate: async () => act(async () => root.render(React.createElement(Transcription, { active: false }))),
     close: async () => { await act(async () => root.unmount()); originals.reverse().forEach(([p,k,v]) => { p[k] = v }); dom.window.close() },
@@ -51,11 +54,15 @@ test('recording starts selected bar with count-in; cancellation leaves melody un
   try {
     await ui.click(ui.label('Select bar 2'))
     await ui.click(ui.button('Record melody'))
+    assert.ok(document.querySelector('[role="dialog"]'), 'recording opens the fullscreen keyboard')
     assert.equal(ui.request().start, ui.chart.bars[1].id)
     assert.deepEqual(ui.request().options, { countIn: true, muteMelody: true, extendForRecording: true, recordingRate: 1 })
     assert.match(document.body.textContent, /Count in: 4/)
     await ui.click(ui.button('Stop recording'))
     assert.deepEqual(ui.saved(), ui.chart)
+    assert.equal(document.querySelector('[role="dialog"]'), null)
+    assert.equal(document.querySelector('.tx-melody-keyboard'), null, 'keyboard does not take inline chart space')
+    assert.equal(document.activeElement, ui.button('Record melody'), 'focus returns after the trigger is re-enabled')
     assert.equal(ui.button('Undo take'), undefined)
   } finally { await ui.close() }
 })
@@ -194,5 +201,73 @@ test('half-speed choice persists, locks during recording and never changes ordin
     await ui.click(ui.button('Play from bar 2'))
     assert.equal(ui.request().options, undefined, 'normal Play does not receive the recording speed')
     assert.equal(ui.request().chart.bpm, undefined)
+  } finally { await ui.close() }
+})
+
+test('count-in notes sound immediately; only overlapping holds enter the take at beat zero', async () => {
+  for (const rate of [1, 0.5]) {
+    const ui = await setup()
+    try {
+      await act(async () => { const field = ui.label('Recording speed'); field.value = String(rate); field.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })) })
+      await ui.click(ui.label('Select bar 1'))
+      await ui.click(ui.button('Record melody'))
+      assert.equal(ui.label('Play C4').disabled, false, 'ready count-in keys are enabled')
+      await ui.event(ui.label('Play C4'), 'pointerdown', 1)
+      await ui.event(ui.label('Play C4'), 'pointerup', 1)
+      await ui.event(ui.label('Play C4'), 'pointerdown', 2)
+      await ui.event(ui.label('Play E4'), 'pointerdown', 3)
+      assert.equal(ui.notes.length, 3, 'pre-roll notes are monitored immediately')
+      await ui.tick(0)
+      assert.equal(ui.notes.length, 3, 'crossing the first beat never reattacks held notes')
+      await ui.event(ui.label('Play F4'), 'pointerdown', 4)
+      await ui.event(ui.label('Play F4'), 'pointercancel', 4)
+      await ui.tick(0.25)
+      await ui.event(ui.label('Play C4'), 'pointerup', 2)
+      await ui.tick(0.5)
+      await ui.event(ui.label('Play E4'), 'pointercancel', 3)
+      await ui.tick(0.75)
+      await ui.event(ui.label('Play G4'), 'pointerdown', 5)
+      await ui.tick(1.25)
+      await ui.click(ui.button('Stop recording'))
+      assert.deepEqual(ui.saved().bars[0].melody.map(({pitch,offset,duration}) => ({pitch,offset,duration})), [
+        { pitch: 60, offset: 0, duration: 0.25 },
+        { pitch: 64, offset: 0, duration: 0.5 },
+        { pitch: 67, offset: 0.75, duration: 0.5 },
+      ], 'count-in-only and zero-duration notes are omitted at both recording speeds')
+      assert.equal(ui.request().options.recordingRate, rate)
+    } finally { await ui.close() }
+  }
+})
+
+test('held count-in cancellation keeps prior melody and audio loading alone gates keys', async () => {
+  const ui = await setup()
+  try {
+    await ui.click(ui.label('Select bar 1'))
+    await ui.click(ui.button('Record melody'))
+    await ui.loading()
+    assert.equal(ui.label('Play C4').disabled, true)
+    await ui.ready()
+    assert.equal(ui.label('Play C4').disabled, false)
+    await ui.event(ui.label('Play C4'), 'pointerdown', 1)
+    await ui.event(ui.label('Play C4'), 'pointerdown', 2)
+    await ui.click(ui.button('Stop recording'))
+    assert.deepEqual(ui.saved(), ui.chart)
+    assert.equal(ui.button('Undo take'), undefined)
+    assert.equal(ui.notes.length, 2)
+  } finally { await ui.close() }
+})
+
+test('Escape in the recording dialog saves a held note and restores the chart', async () => {
+  const ui = await setup()
+  try {
+    await ui.click(ui.label('Select bar 1'))
+    await ui.click(ui.button('Record melody'))
+    await ui.event(ui.label('Play C4'), 'pointerdown', 1)
+    await ui.tick(0.75)
+    await act(async () => document.querySelector('[role="dialog"]').dispatchEvent(new ui.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    assert.equal(document.querySelector('[role="dialog"]'), null)
+    assert.equal(ui.saved().bars[0].melody[0].offset, 0)
+    assert.equal(ui.saved().bars[0].melody[0].duration, 0.75)
+    assert.equal(document.querySelector('.tx-melody-keyboard'), null)
   } finally { await ui.close() }
 })

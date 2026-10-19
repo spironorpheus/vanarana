@@ -612,12 +612,14 @@ test('recording waits for audio readiness then counts exactly four beats even wi
   const { sequencer, clock, states, played, metronomeStarted } = setup(t, { prepare: () => activation.promise })
   const input = { ...chart([{ id: 'a', chords: [chord('a1')] }]), metronome: false }
   const playing = sequencer.play(input, 0, undefined, { countIn: true })
-  assert.equal(states.at(-1).countInBeatsRemaining, 4, 'loading keeps the keyboard gated')
+  assert.equal(states.at(-1).countInBeatsRemaining, 4, 'loading shows the upcoming count-in')
+  assert.equal(states.at(-1).audioReady, false, 'keys remain gated only while audio prepares')
   assert.equal(sequencer.getRecordingBeat(), null)
   clock.tick(1000)
   assert.equal(played.length, 0)
   activation.resolve()
   await playing
+  assert.equal(states.at(-1).audioReady, true, 'keys unlock at the start of the count-in')
   assert.deepEqual(metronomeStarted, [{ at: 1000, bpm: 120, durationSeconds: 2 }])
   for (let beat = 0; beat < 4; beat++) {
     assert.equal(states.at(-1).countInBeatsRemaining, 4 - beat)
