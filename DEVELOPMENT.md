@@ -28,3 +28,7 @@ DOM and playback tests mock Web Audio and MIDI. Passing tests do not verify audi
 - Chord catalog edits can be prepared in the UI and copied with **Export edits**. Commit exported changes before clearing local overrides; clearing unmatched edits discards them.
 - Ear-training arrangements are fixed, committed MIDI note, timing, velocity, and instrument data. Preserve their original keys and answer identities. Do not replace them with runtime-generated music or third-party audio services.
 - Self-hosted instrument samples derive from CC0 VSCO 2 Community Edition and VCSL recordings. Preserve the bundled license texts, [attribution](public/audio/instruments/ATTRIBUTION.md), and [per-sample provenance](public/audio/instruments/provenance.json) when changing assets. The provenance records source commits, pitches, and offline transformations. VSCO orchestral filenames use an octave convention one lower than scientific pitch notation; verify actual pitches rather than trusting names.
+
+## Transcription data
+
+The separate `vanarana.transcriptions.v1` store contains a versioned JSON envelope. Chord roots and slash basses are semitone offsets from the chart's major tonic, not absolute notes. Rendering and auditioning in another key must never rewrite those offsets. Grid auditions are fixed root-position chords; slash bass is only applied to edited chart chords. Keep transcription synthesis isolated from the quiz's fixed authored arrangements. Import validates the full envelope before adding copies with fresh IDs; it never replaces existing work.

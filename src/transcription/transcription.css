@@ -1,0 +1,60 @@
+.transcription { max-width: 1280px; }
+.transcription button, .transcription select, .transcription input { min-height: 44px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font: inherit; font-size: 13px; }
+.transcription button { padding: 8px 13px; cursor: pointer; }
+.transcription button:hover { border-color: var(--green); background: var(--green-soft); }
+.transcription button:disabled { opacity: .4; cursor: not-allowed; }
+.transcription :is(button, select, input):focus-visible { outline: 3px solid var(--ochre); outline-offset: 2px; }
+.transcription input, .transcription select { width: 100%; padding: 9px 11px; }
+.transcription label { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 11px; color: var(--muted); }
+.transcription h2 { margin-bottom: 7px; font-family: Georgia, serif; font-size: 24px; font-weight: 500; }
+.transcription .tx-primary { background: var(--green); border-color: var(--green); color: white; }
+.tx-library { margin: 30px 0 24px; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+.tx-library > label { flex: 1; min-width: 190px; }
+.tx-create { display: flex; align-items: flex-end; gap: 8px; flex: 1.4; }
+.tx-create label { flex: 1; }
+.tx-backups { display: flex; gap: 7px; }
+.tx-chart, .tx-edit, .tx-audition { border: 1px solid var(--line); background: var(--paper); border-radius: 12px; margin-top: 20px; padding: 22px; }
+.tx-chart-heading { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 14px; margin-bottom: 20px; }
+.tx-chart-heading .tx-title { flex: 1; min-width: 180px; }
+.tx-title input { font-family: Georgia, serif; font-size: 24px; }
+.tx-bars { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tx-bar { border: 1px solid var(--line); border-radius: 8px; min-height: 116px; overflow: hidden; }
+.tx-bar.is-selected { border-color: var(--green); box-shadow: 0 0 0 2px var(--green); background: #f1f6f0; }
+.transcription .tx-bar-select { display: flex; width: 100%; min-height: 44px; align-items: center; justify-content: space-between; gap: 6px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; text-align: left; font-size: 11px; color: var(--muted); }
+.tx-bar-select small { overflow-wrap: anywhere; text-align: right; }
+.tx-chips { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 7px; padding: 10px; }
+.transcription .tx-chips button { font-size: 18px; font-variant-numeric: lining-nums; padding: 7px 10px; }
+.transcription .tx-chips .is-editing { background: var(--green); color: white; border-color: var(--green); }
+.transcription .tx-chips .tx-empty-bar { border: 0; color: var(--muted); background: transparent; font-size: 11px; }
+.tx-chart-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+.tx-chart-actions span { margin-left: auto; color: var(--muted); font-size: 11px; }
+.tx-edit { border-color: #a6b9ad; }
+.tx-edit-heading, .tx-grid-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
+.tx-edit-heading h2 { margin: 0; }
+.tx-edit-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 9px; }
+.tx-edit-fields label { flex: 1; min-width: 130px; max-width: 230px; }
+.tx-chord-editor { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.tx-chord-editor > strong { display: block; margin-bottom: 13px; font-size: 15px; font-weight: 500; }
+.tx-grid-heading p, .tx-welcome p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 0; }
+.tx-grid-heading > button { flex-shrink: 0; }
+.tx-grid-scroll { overflow-x: auto; }
+.tx-grid { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.tx-grid th { font-size: 11px; color: var(--muted); font-weight: 500; padding: 8px 3px; overflow-wrap: anywhere; }
+.tx-grid th:first-child { width: 45px; }
+.tx-grid td { padding: 3px; }
+.transcription .tx-grid button { width: 100%; padding: 8px 3px; font-size: 17px; min-height: 48px; }
+.tx-footnote { margin: 14px 0 0; font-size: 11px; color: var(--muted); line-height: 1.7; }
+.tx-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: #f5e9d7; border-radius: 7px; font-size: 13px; }
+.tx-welcome { margin: 30px 0; padding: 25px 0; }
+@media (max-width: 760px) {
+  .tx-library { gap: 14px 10px; }.tx-library > label { flex-basis: 100%; }.tx-create { flex-basis: 100%; }
+  .tx-chart, .tx-edit, .tx-audition { padding: 14px; }
+  .tx-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tx-chart-heading { gap: 12px; }.tx-chart-heading .tx-title { flex-basis: 100%; }.tx-chart-heading > label { flex: 1; }
+  .tx-chart-actions span { width: 100%; margin: 2px 0 0; }
+  .tx-grid th { font-size: 9px; }.tx-grid th:first-child { width: 27px; }.tx-grid td { padding: 2px; }
+  .transcription .tx-grid button { font-size: 13px; letter-spacing: -.3px; }
+  .tx-grid-heading { align-items: flex-start; }.tx-grid-heading p { font-size: 12px; }.tx-grid-heading h2 { font-size: 23px; }
+  .tx-edit-fields label { max-width: none; }.tx-edit-fields > button { flex: 1; }
+}
+@media (max-width: 360px) { .tx-chart, .tx-edit, .tx-audition { padding: 10px; }.transcription .tx-grid button { font-size: 12px; } }
