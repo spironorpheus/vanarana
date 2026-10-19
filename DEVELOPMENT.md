@@ -42,3 +42,6 @@ Bar growth is event-driven: a valid nonempty edit to the final bar appends exact
 Transcription piano playback reuses the self-hosted program-0 sample bank. Exact pitches are preferred; other pitches use the closest recorded pitch with a semitone playback-rate adjustment. Keep this separate from quiz playback, which must preserve exact authored pitches and samples. Holds use a single attack and natural piano decay, never repeated notes or looping.
 
 The optional per-chart `metronome` boolean defaults to on for old charts. It is playback-only, counts four beats per bar regardless of chord slots/holds, and accents beat one. Start its audio-clock schedule only after piano preparation completes; cancel its timer and scheduled clicks independently from ordinary chord voice changes.
+
+
+Melody notes are optional per-bar source-key absolute MIDI pitches with beat offsets, durations (which may cross bars), and velocity. Keep cross-bar notes as a single onset; the green bar-edge indicator and automatic trimming include sustained tails. Recording uses the player audio clock after a forced four-beat count-in, with previous melody muted. Replacing a take clears all covered bars, including a partial last bar and silence, clips incoming earlier holds, and retains a one-step undo. Navigation/background saves a started take synchronously; count-in cancellation is a no-op.

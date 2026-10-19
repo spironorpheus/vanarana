@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   QUALITIES, KEYS, STORAGE_KEY, STORAGE_VERSION, MAX_IMPORT_CHARACTERS,
   MAX_CHARTS, MAX_BARS_PER_CHART, MAX_CHORDS_PER_BAR,
+  MAX_MELODY_NOTES_PER_BAR, MAX_MELODY_DURATION_BEATS,
   makeId, createChart, degreeName, noteName, chordLabel, chordMidi,
   parseCharts, serializeCharts, loadCharts, saveCharts, parseBarText, barText,
 } from '../src/transcription/model.ts'
@@ -155,6 +156,59 @@ test('holds display as dots, do not generate an attack, and survive version 1 st
   for (const value of [false, null, 0, 1, '.', 'true', {}]) {
     assert.throws(() => parseCharts(malformedChord({ hold: value })), /hold must be true/)
   }
+})
+
+const melodyNote = (overrides = {}) => ({ id: 'melody-1', pitch: 62, offset: 3.5, duration: 5.25, velocity: 0.8, ...overrides })
+const chartWithMelody = (notes = [melodyNote()]) => chart({ bars: [{ ...chart().bars[0], melody: notes }] })
+
+test('optional melody notes round-trip in version 1, including cross-bar duration and metadata', () => {
+  const original = chartWithMelody([melodyNote(), melodyNote({ id: 'melody-2', pitch: 127, offset: 0, duration: 0.001, velocity: 0 })])
+  original.bpm = 143
+  original.metronome = false
+  assert.deepEqual(parseCharts(serializeCharts([original])), [original])
+  assert.equal(JSON.parse(serializeCharts([original])).version, 1)
+  assert.equal(parseCharts(serializeCharts([chart()]))[0].bars[0].melody, undefined)
+  assert.deepEqual(parseCharts(serializeCharts([chartWithMelody([])]))[0].bars[0].melody, [])
+  const input = chartWithMelody([melodyNote({ untrusted: 'stripped' })])
+  assert.deepEqual(parseCharts(envelope([input]))[0].bars[0].melody, [melodyNote()])
+})
+
+test('melody validation rejects malformed notes, nonfinite timing, and invalid MIDI values', () => {
+  for (const invalid of [null, 'notes', {}, 1]) {
+    assert.throws(() => serializeCharts([chartWithMelody(invalid)]), /melody.*list/)
+  }
+  for (const invalid of [null, 'note', []]) {
+    assert.throws(() => serializeCharts([chartWithMelody([invalid])]), /object/)
+  }
+  for (const pitch of [-1, 128, 62.5, NaN, Infinity, '62', null, undefined]) {
+    assert.throws(() => serializeCharts([chartWithMelody([melodyNote({ pitch })])]), /pitch/)
+  }
+  for (const offset of [-0.001, 4, 10, NaN, Infinity, '0', null, undefined]) {
+    assert.throws(() => serializeCharts([chartWithMelody([melodyNote({ offset })])]), /offset/)
+  }
+  for (const duration of [0, -1, MAX_MELODY_DURATION_BEATS + 0.001, NaN, Infinity, '1', null, undefined]) {
+    assert.throws(() => serializeCharts([chartWithMelody([melodyNote({ duration })])]), /duration/)
+  }
+  for (const velocity of [-0.001, 1.001, NaN, Infinity, '1', null, undefined]) {
+    assert.throws(() => serializeCharts([chartWithMelody([melodyNote({ velocity })])]), /velocity/)
+  }
+  assert.doesNotThrow(() => serializeCharts([chartWithMelody([
+    melodyNote({ id: 'low', pitch: 0, duration: MAX_MELODY_DURATION_BEATS, velocity: 0 }),
+    melodyNote({ id: 'high', pitch: 127, offset: 0, duration: Number.MIN_VALUE, velocity: 1 }),
+  ])]))
+})
+
+test('melody IDs share the global uniqueness and item limits with chart data', () => {
+  for (const id of ['', ' ', ' leading', 'trailing ', 'x'.repeat(129), null, 1, 'chart-1', 'bar-1', 'chord-1']) {
+    assert.throws(() => serializeCharts([chartWithMelody([melodyNote({ id })])]), /ID/)
+  }
+  assert.throws(() => serializeCharts([chartWithMelody([melodyNote(), melodyNote()])]), /Duplicate ID/)
+  assert.throws(() => serializeCharts([chartWithMelody(Array(MAX_MELODY_NOTES_PER_BAR + 1).fill(melodyNote()))]), /at most 256/)
+  const manyNotes = chart({ bars: Array.from({ length: 100 }, (_, barIndex) => ({
+    id: `bar-${barIndex}`, chords: [],
+    melody: Array.from({ length: 250 }, (_, noteIndex) => melodyNote({ id: `note-${barIndex}-${noteIndex}` })),
+  })) })
+  assert.throws(() => serializeCharts([manyNotes]), /25000-item limit/)
 })
 
 test('exports a versioned list and round-trips chart metadata, order, and slash bass', () => {

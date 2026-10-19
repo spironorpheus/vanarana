@@ -73,3 +73,9 @@
 .tx-metronome > span { height: 44px; display: flex; align-items: center; gap: 9px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); font-size: 14px; }
 .transcription .tx-settings .tx-metronome input { width: 18px; height: 18px; min-height: 18px; margin: 0; accent-color: var(--green); }
 @media (max-width: 760px) { .tx-settings .tx-play { grid-column: 1 / -1; }.tx-metronome > span { font-size: 16px; } }
+
+.transcription .tx-lockable { min-width: 0; padding: 0; border: 0; }
+.transcription .tx-bar.has-melody::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--green); pointer-events: none; }
+.tx-melody-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; }
+.tx-melody-controls > span { font-size: 12px; color: var(--muted); }
+.transcription fieldset.tx-settings { margin-inline: 0; margin-top: 0; }

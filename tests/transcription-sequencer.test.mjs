@@ -45,7 +45,7 @@ function setup(t, options = {}) {
       }
     },
   }
-  const played = [], stopped = [], prepared = [], states = [], metronomeStarted = [], metronomeStopped = []
+  const played = [], stopped = [], prepared = [], states = [], metronomeStarted = [], metronomeStopped = [], melodyPlayed = [], melodyStopped = []
   let disposeCalls = 0
   const player = {
     prepare() { prepared.push(now); return options.prepare?.() ?? Promise.resolve() },
@@ -59,11 +59,17 @@ function setup(t, options = {}) {
       options.startMetronome?.(bpm, durationSeconds)
     },
     stopMetronome() { metronomeStopped.push({ at: now }) },
+    scheduleMelodyNote(id, pitch, startedAt, duration, velocity) {
+      melodyPlayed.push({ at: now, id, pitch, startedAt, duration, velocity })
+      options.scheduleMelodyNote?.(id, pitch, startedAt, duration, velocity)
+    },
+    stopMelody() { melodyStopped.push({ at: now }) },
     dispose() { disposeCalls++ },
   }
+  if (options.audioTime) player.audioTime = options.audioTime
   const sequencer = new ChartSequencer(player, state => { states.push(state); options.onState?.(state) }, clock)
   t.after(() => sequencer.dispose())
-  return { sequencer, clock, timers, player, played, stopped, prepared, states, metronomeStarted, metronomeStopped, disposeCalls: () => disposeCalls }
+  return { sequencer, clock, timers, player, played, stopped, prepared, states, metronomeStarted, metronomeStopped, melodyPlayed, melodyStopped, disposeCalls: () => disposeCalls }
 }
 
 test('constructing a sequencer and independently auditioning a chord never starts its metronome', async t => {
@@ -597,4 +603,195 @@ test('a hold highlight callback can stop playback and clear all later held trans
   assert.equal(fixture.timers.size, 0)
   fixture.clock.tick(5000)
   assert.equal(fixture.played.length, 1)
+})
+
+const melodyNote = (id, pitch = 72, offset = 0, duration = 1, velocity = 0.8) => ({ id, pitch, offset, duration, velocity })
+
+test('recording waits for audio readiness then counts exactly four beats even with metronome disabled', async t => {
+  const activation = deferred()
+  const { sequencer, clock, states, played, metronomeStarted } = setup(t, { prepare: () => activation.promise })
+  const input = { ...chart([{ id: 'a', chords: [chord('a1')] }]), metronome: false }
+  const playing = sequencer.play(input, 0, undefined, { countIn: true })
+  assert.equal(states.at(-1).countInBeatsRemaining, 4, 'loading keeps the keyboard gated')
+  assert.equal(sequencer.getRecordingBeat(), null)
+  clock.tick(1000)
+  assert.equal(played.length, 0)
+  activation.resolve()
+  await playing
+  assert.deepEqual(metronomeStarted, [{ at: 1000, bpm: 120, durationSeconds: 2 }])
+  for (let beat = 0; beat < 4; beat++) {
+    assert.equal(states.at(-1).countInBeatsRemaining, 4 - beat)
+    assert.equal(sequencer.getRecordingBeat(), null)
+    assert.equal(played.length, 0)
+    clock.tick(500)
+  }
+  assert.equal(sequencer.getRecordingBeat(), 0)
+  assert.equal(states.at(-1).countInBeatsRemaining, 0)
+  assert.equal(played[0].at, 3000)
+  clock.tick(250)
+  assert.equal(sequencer.getRecordingBeat(), 0.5)
+  assert.equal(metronomeStarted.length, 1, 'the disabled chart receives only its count-in clicks')
+})
+
+test('an enabled metronome has one continuous count-in plus chart timeline', async t => {
+  const { sequencer, metronomeStarted, clock, played } = setup(t)
+  await sequencer.play(chart([{ id: 'a', chords: [chord('a1')] }], 60), 0, undefined, { countIn: true })
+  assert.deepEqual(metronomeStarted, [{ at: 0, bpm: 60, durationSeconds: 8 }])
+  clock.tick(3999)
+  assert.equal(played.length, 0)
+  clock.tick(1)
+  assert.equal(played[0].at, 4000)
+  assert.equal(played[0].durationSeconds, 4)
+})
+
+test('stopping in the count-in cancels its remaining clicks, queued melody, and chord start', async t => {
+  const { sequencer, clock, played, states, timers, melodyPlayed, melodyStopped } = setup(t)
+  await sequencer.play(chart([{ id: 'a', chords: [chord('a1')], melody: [melodyNote('m1')] }]), 0,
+    undefined, { countIn: true, extendForRecording: true })
+  clock.tick(1900)
+  assert.equal(melodyPlayed.length, 1, 'beat-one melody is queued shortly before the count-in ends')
+  assert.equal(melodyPlayed[0].startedAt, 2)
+  const previousStops = melodyStopped.length
+  sequencer.stop()
+  assert.equal(melodyStopped.length, previousStops + 1)
+  assert.deepEqual(states.at(-1), { ...idle, elapsedBeats: 0 })
+  assert.equal(sequencer.getRecordingBeat(), null)
+  assert.equal(timers.size, 0)
+  clock.tick(10000)
+  assert.equal(played.length, 0)
+  assert.equal(melodyPlayed.length, 1)
+})
+
+test('recording extensions are virtual, preserve the snapshot, and stop at the absolute 1000-bar limit', async t => {
+  const { sequencer, clock, states, played } = setup(t)
+  const input = chart([{ id: 'a', chords: [chord('a1')] }])
+  await sequencer.play(input, 0, undefined, { muteMelody: true, extendForRecording: true })
+  clock.tick(2000)
+  assert.equal(states.at(-1).barId, 'recording-bar-1')
+  assert.equal(states.at(-1).barIndex, 1)
+  assert.equal(states.at(-1).elapsedBeats, 4)
+  assert.equal(input.bars.length, 1, 'persistent bars are created only when the UI saves its take')
+  assert.equal(played.length, 1)
+  clock.jump(1_998_000)
+  clock.runDue()
+  assert.deepEqual(states.at(-1), { ...idle, elapsedBeats: 4000 })
+  assert.equal(sequencer.getRecordingBeat(), null)
+})
+
+test('recording from a selected late bar exposes relative beats but absolute bar indices', async t => {
+  const { sequencer, clock, states, metronomeStarted } = setup(t)
+  const input = chart(Array.from({ length: 999 }, (_, i) => ({ id: `bar-${i}`, chords: [] })))
+  await sequencer.play(input, 0, 'bar-998', { countIn: true, extendForRecording: true })
+  assert.equal(states.at(-1).barIndex, 998)
+  assert.equal(metronomeStarted[0].durationSeconds, 6)
+  clock.tick(2000)
+  assert.equal(sequencer.getRecordingBeat(), 0)
+  assert.equal(states.at(-1).barIndex, 998)
+  clock.tick(2000)
+  assert.equal(sequencer.getRecordingBeat(), 4)
+  assert.equal(states.at(-1).barIndex, 999)
+  clock.tick(2000)
+  assert.deepEqual(states.at(-1), { ...idle, elapsedBeats: 8 })
+})
+
+test('record timestamps follow the audio clock independently of JS clock and interruption stops the take', async t => {
+  let audioTime = 10, interrupted = false
+  const { sequencer, clock, states, timers } = setup(t, { audioTime: () => {
+    if (interrupted) throw new Error('Your browser paused audio.')
+    return audioTime
+  } })
+  await sequencer.play(chart([{ id: 'a', chords: [] }]), 0, undefined, { countIn: true, extendForRecording: true })
+  assert.equal(sequencer.getRecordingBeat(), null)
+  clock.tick(900)
+  assert.equal(sequencer.getRecordingBeat(), null, 'wall time never advances a paused audio timeline')
+  audioTime = 12
+  clock.tick(100)
+  assert.equal(sequencer.getRecordingBeat(), 0)
+  audioTime = 13.125
+  assert.equal(sequencer.getRecordingBeat(), 2.25)
+  interrupted = true
+  assert.equal(sequencer.getRecordingBeat(), 2.25, 'pointer release on blur retains the most recent audio timestamp')
+  clock.tick(100)
+  assert.deepEqual(states.at(-1), { ...idle, elapsedBeats: 2.25, error: 'Your browser paused audio.' })
+  assert.equal(timers.size, 0)
+})
+
+test('melody uses lookahead audio scheduling and sustains across piano changes and bar lines', async t => {
+  const { sequencer, clock, melodyPlayed, melodyStopped, played } = setup(t)
+  await sequencer.play(chart([
+    { id: 'a', chords: [chord('a1')], melody: [melodyNote('m1', 72, 3.5, 3, 0.6)] },
+    { id: 'b', chords: [chord('b1', 7)], melody: [melodyNote('m2', 76, 0, 1)] },
+  ]), 0)
+  assert.equal(melodyPlayed.length, 0)
+  clock.tick(1650)
+  assert.deepEqual(melodyPlayed.map(({ id, ...note }) => note), [
+    { at: 1650, pitch: 72, startedAt: 1.75, duration: 1.5, velocity: 0.6 },
+  ])
+  const stops = melodyStopped.length
+  clock.tick(350)
+  assert.equal(played.length, 2)
+  assert.equal(melodyPlayed[1].startedAt, 2)
+  assert.equal(melodyStopped.length, stops, 'piano changes cannot cut the independent melody layer')
+  clock.tick(2000)
+  assert.equal(melodyStopped.length, stops + 1)
+})
+
+test('selected-start melody includes held notes and uses signed source-key transposition without octave wrapping', async t => {
+  const { sequencer, melodyPlayed } = setup(t)
+  const input = { ...chart([
+    { id: 'earlier', chords: [], melody: [melodyNote('held', 64, 3, 3), melodyNote('expired', 60, 0, 1)] },
+    { id: 'selected', chords: [], melody: [melodyNote('new', 72, 0, 1)] },
+  ]), sourceKey: 5 }
+  await sequencer.play(input, 2, 'selected')
+  assert.deepEqual(melodyPlayed.map(({ pitch, startedAt, duration }) => ({ pitch, startedAt, duration })), [
+    { pitch: 61, startedAt: 0, duration: 1 },
+    { pitch: 69, startedAt: 0, duration: 0.5 },
+  ])
+})
+
+test('melody notes are snapshotted before audio activation and can be muted during replacement recording', async t => {
+  const activation = deferred()
+  const { sequencer, melodyPlayed } = setup(t, { prepare: () => activation.promise })
+  const input = chart([{ id: 'a', chords: [], melody: [melodyNote('m1', 72, 0, 2)] }])
+  const playing = sequencer.play(input, 2)
+  input.bars[0].melody[0].pitch = 1
+  input.bars[0].melody[0].duration = 1
+  input.bars[0].melody.push(melodyNote('m2'))
+  activation.resolve()
+  await playing
+  assert.equal(melodyPlayed.length, 1)
+  assert.equal(melodyPlayed[0].pitch, 74)
+  assert.equal(melodyPlayed[0].duration, 1)
+  await sequencer.play(input, 2, undefined, { muteMelody: true })
+  assert.equal(melodyPlayed.length, 1)
+})
+
+test('late melody scheduling skips expired attacks and plays only the remaining held duration', async t => {
+  const { sequencer, clock, melodyPlayed } = setup(t)
+  await sequencer.play(chart([{ id: 'a', chords: [], melody: [
+    melodyNote('expired', 60, 1, 0.25), melodyNote('held', 64, 2, 2),
+  ] }]), 0)
+  clock.jump(1500)
+  clock.runDue()
+  assert.equal(melodyPlayed.length, 1)
+  assert.equal(melodyPlayed[0].pitch, 64)
+  assert.equal(melodyPlayed[0].startedAt, 1.5)
+  assert.equal(melodyPlayed[0].duration, 0.5)
+})
+
+test('out-of-range transposition fails before activation and synth errors cancel every layer', async t => {
+  let broken = false
+  const { sequencer, clock, states, timers, prepared, melodyStopped } = setup(t, {
+    scheduleMelodyNote: () => { if (broken) throw new Error('Synth unavailable') },
+  })
+  await sequencer.play(chart([{ id: 'a', chords: [], melody: [melodyNote('high', 127)] }]), 2)
+  assert.match(states.at(-1).error, /outside.*MIDI range/)
+  assert.equal(prepared.length, 0)
+  await sequencer.play(chart([{ id: 'a', chords: [], melody: [melodyNote('m1', 72, 2)] }]), 0)
+  broken = true
+  const stops = melodyStopped.length
+  clock.tick(900)
+  assert.equal(states.at(-1).error, 'Synth unavailable')
+  assert.equal(timers.size, 0)
+  assert.equal(melodyStopped.length, stops + 1)
 })

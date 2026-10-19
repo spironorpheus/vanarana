@@ -13,6 +13,7 @@ type Voice = {
   duration: number
   releasing: boolean
   cleanupTimer: ReturnType<typeof setTimeout> | null
+  melodyId?: string
 }
 type Metronome = {
   startedAt: number
@@ -30,6 +31,9 @@ const LOAD_TIMEOUT_MS = 20000
 const METRONOME_LOOKAHEAD_SECONDS = 0.1
 const METRONOME_INTERVAL_MS = 25
 const CLICK_SECONDS = 0.035
+const MELODY_ATTACK_SECONDS = 0.018
+const MELODY_RELEASE_SECONDS = 0.06
+const MAX_HELD_MELODY_SECONDS = 6_000
 
 export interface ChordPlaybackOptions {
   /** Let the piano decay naturally, with a hard cutoff at this interval's end. */
@@ -60,6 +64,9 @@ export class ChordPlayer {
   private readonly buffers = new Map<number, AudioBuffer>()
   private readonly voices = new Set<Voice>()
   private readonly clicks = new Set<Voice>()
+  private readonly melodyVoices = new Set<Voice>()
+  private readonly melodyNotes = new Map<string, Set<Voice>>()
+  private readonly pendingMelody = new Map<string, AbortController>()
   private metronome: Metronome | null = null
   private request = 0
   private controller: AbortController | null = null
@@ -115,8 +122,120 @@ export class ChordPlayer {
     this.stopVoices(immediate)
   }
 
+  /** The one clock shared by recording, melody, chords, and metronome clicks. */
+  audioTime(): number {
+    if (this.context && this.context.state !== 'running') {
+      throw new Error('Your browser paused audio. Try playing the chart again.')
+    }
+    return this.context?.currentTime ?? 0
+  }
+
+  /** Call directly from a keyboard/pointer gesture. Each finger has its own ID. */
+  async startMelodyNote(id: string, pitch: number, velocity = 0.8): Promise<void> {
+    if (this.disposed) return
+    this.validateMelody(pitch, velocity)
+    this.stopMelodyNote(id)
+    const controller = new AbortController()
+    this.pendingMelody.set(id, controller)
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    let scheduling = false
+    try {
+      const context = this.getContext()
+      // Resume before the first await, without fetching the piano sample bank.
+      if (context.state !== 'running') {
+        const resumed = context.resume()
+        timeout = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS)
+        await abortable(resumed, controller.signal)
+      }
+      if (this.disposed || this.pendingMelody.get(id) !== controller) return
+      if (context.state !== 'running') throw new Error('Your browser paused audio. Try playing the melody again.')
+      scheduling = true
+      this.scheduleMelodyNote(id, pitch, context.currentTime, MAX_HELD_MELODY_SECONDS, velocity)
+    } catch (error) {
+      if (this.disposed || (!scheduling && this.pendingMelody.get(id) !== controller)) return
+      this.stopMelodyNote(id)
+      if (error instanceof Error && error.name !== 'AbortError') throw error
+      throw new Error('Melody audio could not start. Please try again.', { cause: error })
+    } finally {
+      if (timeout !== null) clearTimeout(timeout)
+      if (this.pendingMelody.get(id) === controller) this.pendingMelody.delete(id)
+    }
+  }
+
+  stopMelodyNote(id: string): void {
+    this.pendingMelody.get(id)?.abort()
+    this.pendingMelody.delete(id)
+    const voices = this.melodyNotes.get(id)
+    this.melodyNotes.delete(id)
+    if (voices) for (const voice of voices) this.stopVoice(voice, false, this.melodyVoices)
+  }
+
+  /** Cancel live fingers and already-scheduled playback, independently of piano. */
+  stopMelody(immediate = true): void {
+    for (const controller of this.pendingMelody.values()) controller.abort()
+    this.pendingMelody.clear()
+    this.melodyNotes.clear()
+    for (const voice of this.melodyVoices) this.stopVoice(voice, immediate, this.melodyVoices)
+  }
+
+  /** Prepared chart playback: schedule a flute-like tone at an audio-clock time. */
+  scheduleMelodyNote(id: string, pitch: number, startedAt: number, duration: number, velocity = 0.8): void {
+    if (this.disposed) return
+    this.validateMelody(pitch, velocity)
+    if (!Number.isFinite(startedAt) || startedAt < 0 || !Number.isFinite(duration) || duration <= 0) {
+      throw new Error('Melody timing must be a positive duration at a valid audio time.')
+    }
+    const context = this.context
+    if (!context || context.state !== 'running') throw new Error('Your browser paused audio. Try playing the melody again.')
+    const now = context.currentTime
+    const endAt = startedAt + duration
+    if (endAt <= now || velocity === 0) return
+    startedAt = Math.max(startedAt, now)
+    duration = endAt - startedAt
+    this.stopMelodyNote(id)
+    const voices = new Set<Voice>()
+    this.melodyNotes.set(id, voices)
+    try {
+      // A sine fundamental and quiet second harmonic give a soft flute colour,
+      // distinct from the recorded piano, with independent polyphonic envelopes.
+      for (const [harmonic, level] of [[1, 0.12], [2, 0.014]]) {
+        const source = context.createOscillator()
+        let gain: GainNode
+        try { gain = context.createGain() } catch (error) { source.disconnect(); throw error }
+        const attack = Math.min(MELODY_ATTACK_SECONDS, duration * 0.2)
+        const releaseStart = duration - Math.min(MELODY_RELEASE_SECONDS, duration * 0.2)
+        const peak = level * velocity
+        const voice: Voice = { source, gain, startedAt, peak, attack, releaseStart, duration,
+          releasing: false, cleanupTimer: null, melodyId: id }
+        voices.add(voice)
+        this.melodyVoices.add(voice)
+        source.type = 'sine'
+        source.frequency.setValueAtTime(440 * 2 ** ((pitch - 69) / 12) * harmonic, startedAt)
+        source.connect(gain)
+        gain.connect(context.destination)
+        gain.gain.setValueAtTime(0, startedAt)
+        gain.gain.linearRampToValueAtTime(peak, startedAt + attack)
+        gain.gain.setValueAtTime(peak, startedAt + releaseStart)
+        gain.gain.linearRampToValueAtTime(0, endAt)
+        source.onended = () => this.removeVoice(voice, this.melodyVoices)
+        source.start(startedAt)
+        source.stop(endAt)
+        this.scheduleCleanup(voice, endAt - now, this.melodyVoices)
+      }
+    } catch (error) {
+      for (const voice of voices) this.stopVoice(voice, true, this.melodyVoices)
+      this.melodyNotes.delete(id)
+      throw error
+    }
+  }
+
+  private validateMelody(pitch: number, velocity: number): void {
+    if (!Number.isInteger(pitch) || pitch < 0 || pitch > 127) throw new Error('This melody contains an invalid MIDI pitch.')
+    if (!Number.isFinite(velocity) || velocity < 0 || velocity > 1) throw new Error('Melody velocity must be between 0 and 1.')
+  }
+
   /** Chart-only: requires prepare() to have activated the existing audio context. */
-  startMetronome(bpm: number, durationSeconds: number): void {
+  startMetronome(bpm: number, durationSeconds: number, atSeconds?: number): void {
     if (this.disposed) return
     this.stopMetronome()
     if (!Number.isFinite(bpm) || bpm < MIN_BPM || bpm > MAX_BPM ||
@@ -125,7 +244,8 @@ export class ChordPlayer {
     }
     const context = this.context
     if (!context || context.state !== 'running') throw new Error('Your browser paused audio. Try playing the chart again.')
-    const startedAt = context.currentTime
+    const startedAt = atSeconds ?? context.currentTime
+    if (!Number.isFinite(startedAt) || startedAt < 0) throw new Error('Metronome start time is invalid.')
     const metronome: Metronome = {
       startedAt, endAt: startedAt + durationSeconds,
       secondsPerBeat: 60 / bpm, nextBeat: 0, timer: null,
@@ -225,6 +345,7 @@ export class ChordPlayer {
     this.disposed = true
     this.stop(true)
     this.stopMetronome()
+    this.stopMelody()
     this.buffers.clear()
     const context = this.context
     this.context = null
@@ -245,9 +366,10 @@ export class ChordPlayer {
     const context = new Context()
     this.context = context
     context.onstatechange = () => {
-      if (this.context === context && (this.voices.size || this.metronome) && context.state !== 'running') {
+      if (this.context === context && (this.voices.size || this.metronome || this.melodyVoices.size || this.pendingMelody.size) && context.state !== 'running') {
         this.stop(true)
         this.stopMetronome()
+        this.stopMelody()
       }
     }
     return context
@@ -315,26 +437,28 @@ export class ChordPlayer {
   }
 
   private stopVoices(immediate = false): void {
+    for (const voice of this.voices) this.stopVoice(voice, immediate, this.voices)
+  }
+
+  private stopVoice(voice: Voice, immediate: boolean, voices: Set<Voice>): void {
     const context = this.context
-    for (const voice of this.voices) {
-      if (immediate || !context || context.state !== 'running') {
-        try { voice.source.stop() } catch { /* Already stopped or not yet started. */ }
-        this.removeVoice(voice)
-      } else if (!voice.releasing) {
-        voice.releasing = true
-        const now = context.currentTime
-        // Reconstruct our linear gain envelope without relying on cancelAndHoldAtTime.
-        const age = Math.max(0, now - voice.startedAt)
-        const level = age < voice.attack ? age / voice.attack
-          : age < voice.releaseStart ? 1
-          : Math.max(0, (voice.duration - age) / (voice.duration - voice.releaseStart))
-        voice.gain.gain.cancelScheduledValues(now)
-        voice.gain.gain.setValueAtTime(voice.peak * level, now)
-        const release = Math.max(0, Math.min(STOP_RELEASE_SECONDS, voice.startedAt + voice.duration - now))
-        voice.gain.gain.linearRampToValueAtTime(0, now + release)
-        try { voice.source.stop(now + release) } catch { /* Already ended. */ }
-        this.scheduleCleanup(voice, release)
-      }
+    if (immediate || !context || context.state !== 'running' || voice.startedAt > context.currentTime) {
+      try { voice.source.stop() } catch { /* Already stopped or not yet started. */ }
+      this.removeVoice(voice, voices)
+    } else if (!voice.releasing) {
+      voice.releasing = true
+      const now = context.currentTime
+      // Reconstruct our linear gain envelope without relying on cancelAndHoldAtTime.
+      const age = Math.max(0, now - voice.startedAt)
+      const level = age < voice.attack ? age / voice.attack
+        : age < voice.releaseStart ? 1
+        : Math.max(0, (voice.duration - age) / (voice.duration - voice.releaseStart))
+      voice.gain.gain.cancelScheduledValues(now)
+      voice.gain.gain.setValueAtTime(voice.peak * level, now)
+      const release = Math.max(0, Math.min(STOP_RELEASE_SECONDS, voice.startedAt + voice.duration - now))
+      voice.gain.gain.linearRampToValueAtTime(0, now + release)
+      try { voice.source.stop(now + release) } catch { /* Already ended. */ }
+      this.scheduleCleanup(voice, release, voices)
     }
   }
 
@@ -349,6 +473,11 @@ export class ChordPlayer {
 
   private removeVoice(voice: Voice, voices = this.voices): void {
     if (!voices.delete(voice)) return
+    if (voice.melodyId !== undefined) {
+      const notes = this.melodyNotes.get(voice.melodyId)
+      notes?.delete(voice)
+      if (notes?.size === 0) this.melodyNotes.delete(voice.melodyId)
+    }
     if (voice.cleanupTimer !== null) clearTimeout(voice.cleanupTimer)
     voice.source.onended = null
     voice.source.disconnect()

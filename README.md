@@ -19,6 +19,8 @@ Tap a bar to edit it inline with scale-degree chords such as `1 . 5/7 6m`. A dot
 
 Use **Play chart** (or **Play from bar**) to hear the chart through the end at 40–240 BPM. Every bar has four beats divided evenly among its entries; empty bars contain no chords. The metronome ticks on each beat with a stronger first beat; turn it off with the Metronome toggle. Playback highlights its position separately from your selection. Unfinished invalid text stays in the editor until you fix or discard it; the last valid chart stays saved. Play your reference recording separately.
 
+Select a bar and press **Record melody** for a four-beat count-in, then play the on-screen keyboard. Touch multiple keys to play together; octave controls change its range. **Stop recording** replaces the melody in every covered bar, including silence, and **Undo take** restores the previous take. Timing is unquantized. A green top edge marks bars containing melody; playback layers a flute-like sound over the piano chords. Leaving the page or switching away saves a started take; stopping during the count-in leaves the melody unchanged.
+
 Transcriptions save in this browser. Export/import JSON backups to keep or transfer your work; imports add copies without replacing existing charts.
 
 ## Quizzes

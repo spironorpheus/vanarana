@@ -10,9 +10,23 @@ export interface Chord {
   hold?: true
 }
 
+/** One note attack, stored at its onset in the chart's original/source key. */
+export interface MelodyNote {
+  id: string
+  /** Absolute MIDI pitch in sourceKey, before any playback transposition. */
+  pitch: number
+  /** Quarter-note beats from the beginning of the owning bar, in [0, 4). */
+  offset: number
+  /** Quarter-note beats; sustained notes may extend across subsequent bars. */
+  duration: number
+  /** Normalized MIDI velocity in [0, 1]. */
+  velocity: number
+}
+
 export interface Bar {
   id: string
   chords: Chord[]
+  melody?: MelodyNote[]
   section?: string
   time?: string
 }
@@ -61,6 +75,8 @@ export const MAX_IMPORT_CHARACTERS = 2_000_000
 export const MAX_CHARTS = 200
 export const MAX_BARS_PER_CHART = 1_000
 export const MAX_CHORDS_PER_BAR = 64
+export const MAX_MELODY_NOTES_PER_BAR = 256
+export const MAX_MELODY_DURATION_BEATS = MAX_BARS_PER_CHART * 4
 const MAX_TOTAL_ITEMS = 25_000
 
 let nextId = 0
@@ -195,7 +211,7 @@ function validateCharts(value: unknown): Chart[] {
   const id = (value: unknown, label: string): string => {
     const result = boundedText(value, `${label} ID`, 128, false)
     if (result !== result.trim()) throw new Error(`${label} ID cannot begin or end with whitespace.`)
-    if (seenIds.has(result)) throw new Error(`Duplicate ID "${result}". Every chart, bar, and chord needs a unique ID.`)
+    if (seenIds.has(result)) throw new Error(`Duplicate ID "${result}". Every chart, bar, chord, and melody note needs a unique ID.`)
     seenIds.add(result)
     if (seenIds.size > MAX_TOTAL_ITEMS) throw new Error(`The import exceeds the ${MAX_TOTAL_ITEMS}-item limit.`)
     return result
@@ -242,6 +258,31 @@ function validateCharts(value: unknown): Chart[] {
         }
         return chord
       })
+      if (inputBar.melody !== undefined) {
+        bar.melody = list(inputBar.melody, `${barLabel} melody`, MAX_MELODY_NOTES_PER_BAR).map((noteValue, noteIndex) => {
+          const noteLabel = `${barLabel}, melody note ${noteIndex + 1}`
+          const inputNote = record(noteValue, noteLabel)
+          if (typeof inputNote.pitch !== 'number' || !Number.isInteger(inputNote.pitch) || inputNote.pitch < 0 || inputNote.pitch > 127) {
+            throw new Error(`${noteLabel} pitch must be a whole MIDI number from 0 to 127.`)
+          }
+          if (typeof inputNote.offset !== 'number' || !Number.isFinite(inputNote.offset) || inputNote.offset < 0 || inputNote.offset >= 4) {
+            throw new Error(`${noteLabel} offset must be a finite number of beats from 0 up to, but not including, 4.`)
+          }
+          if (typeof inputNote.duration !== 'number' || !Number.isFinite(inputNote.duration) || inputNote.duration <= 0 || inputNote.duration > MAX_MELODY_DURATION_BEATS) {
+            throw new Error(`${noteLabel} duration must be positive and at most ${MAX_MELODY_DURATION_BEATS} beats.`)
+          }
+          if (typeof inputNote.velocity !== 'number' || !Number.isFinite(inputNote.velocity) || inputNote.velocity < 0 || inputNote.velocity > 1) {
+            throw new Error(`${noteLabel} velocity must be a finite number from 0 to 1.`)
+          }
+          return {
+            id: id(inputNote.id, noteLabel),
+            pitch: inputNote.pitch,
+            offset: inputNote.offset,
+            duration: inputNote.duration,
+            velocity: inputNote.velocity,
+          }
+        })
+      }
       return bar
     })
     return chart

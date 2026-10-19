@@ -615,3 +615,118 @@ test('context interruption stops both piano and metronome until explicit restart
   await player.play([64])
   assert.equal(sources.at(-1).kind, 'piano')
 })
+
+test('melody keyboard resumes in the gesture, uses a flute-like synth, and needs no sample fetch', async t => {
+  const { player, contexts, sources, gains, fetches } = setup(t)
+  const started = player.startMelodyNote('finger-a', 69, 0.5)
+  assert.equal(contexts[0].resumeCalls, 1)
+  await started
+  assert.equal(fetches.length, 0)
+  assert.equal(sources.length, 2)
+  assert.deepEqual(sources.map(source => source.frequency.events[0][1]), [440, 880])
+  assert.deepEqual(gains.map(gain => gain.gain.events[1][1]), [0.06, 0.007])
+  assert.ok(sources.every(source => source.type === 'sine' && source.buffer === null))
+  assert.equal(player.audioTime(), 0)
+})
+
+test('independent keyboard fingers release separately and piano changes never cut melody', async t => {
+  const { player, audio, sources } = setup(t)
+  await player.startMelodyNote('finger-a', 60)
+  await player.startMelodyNote('finger-b', 64)
+  const first = sources.slice(0, 2), second = sources.slice(2, 4)
+  await player.play([60, 64, 67])
+  player.stop(true)
+  assert.ok([...first, ...second].every(source => !source.disconnected))
+  player.stopMelodyNote('finger-a')
+  audio.advance(0.04)
+  assert.ok(first.every(source => source.disconnected))
+  assert.ok(second.every(source => !source.disconnected))
+  player.stopMelody()
+  assert.ok(second.every(source => source.disconnected))
+})
+
+test('lifting during activation resolves promptly and never starts a late note', async t => {
+  const activation = deferred()
+  const { player, contexts, sources } = setup(t, { resume: () => activation.promise })
+  const playing = player.startMelodyNote('finger', 60)
+  player.stopMelodyNote('finger')
+  await playing
+  contexts[0].state = 'running'
+  activation.resolve()
+  await flush()
+  assert.equal(sources.length, 0)
+  await player.startMelodyNote('finger', 64)
+  assert.equal(sources.length, 2)
+})
+
+test('retriggering the same finger supersedes its pending activation without affecting another finger', async t => {
+  const activation = deferred()
+  const { player, contexts, sources } = setup(t, { resume: () => activation.promise })
+  const old = player.startMelodyNote('finger', 60)
+  const replacement = player.startMelodyNote('finger', 64)
+  const other = player.startMelodyNote('other', 67)
+  await old
+  contexts[0].state = 'running'
+  activation.resolve()
+  await Promise.all([replacement, other])
+  assert.equal(sources.length, 4)
+  assert.ok(sources.every(source => source.frequency.events[0][1] !== 440 * 2 ** ((60 - 69) / 12)))
+})
+
+test('scheduled melody retains exact audio times and hard ends, including overlapping bar lines', async t => {
+  const { player, audio, sources, gains } = setup(t)
+  await player.prepare()
+  player.scheduleMelodyNote('across-bars', 72, 1.75, 1, 0.7)
+  player.scheduleMelodyNote('overlap', 76, 2, 0.5, 0.9)
+  assert.deepEqual(sources.map(source => source.starts[0].when), [1.75, 1.75, 2, 2])
+  assert.deepEqual(sources.map(source => source.stops[0]), [2.75, 2.75, 2.5, 2.5])
+  await player.play([65], { durationSeconds: 2 })
+  player.stop(true)
+  assert.ok(sources.slice(0, 4).every(source => !source.disconnected))
+  audio.advance(2.76)
+  assert.ok(sources.every(source => source.disconnected))
+  assert.ok(gains.every(gain => gain.disconnected))
+})
+
+test('stop, interruption, and disposal cancel future melody and clean every synth node', async t => {
+  const { player, contexts, sources, gains } = setup(t)
+  await player.prepare()
+  player.scheduleMelodyNote('future', 60, 10, 2)
+  player.stopMelodyNote('future')
+  assert.ok(sources.every(source => source.disconnected && source.stops.at(-1) === undefined))
+  await player.startMelodyNote('now', 64)
+  contexts[0].state = 'suspended'
+  contexts[0].onstatechange()
+  assert.ok(sources.every(source => source.disconnected))
+  assert.throws(() => player.audioTime(), /paused audio/)
+  await player.startMelodyNote('restart', 67)
+  player.dispose()
+  assert.ok(sources.every(source => source.disconnected && source.onended === null))
+  assert.ok(gains.every(gain => gain.disconnected))
+})
+
+test('melody scheduling failures clean partially created nodes and remain retryable', async t => {
+  let created = 0
+  const { player, sources, gains } = setup(t, { createGain: () => {
+    if (++created === 2) throw new Error('Synth unavailable')
+  } })
+  await assert.rejects(player.startMelodyNote('finger', 60), /Synth unavailable/)
+  assert.ok(sources.every(source => source.disconnected))
+  assert.ok(gains.every(gain => gain.disconnected))
+  await player.startMelodyNote('finger', 64)
+  assert.equal(sources.length, 4)
+  assert.ok(sources.slice(2).every(source => !source.disconnected))
+})
+
+test('invalid melody pitches, velocity, and schedules fail before making nodes', async t => {
+  const { player, contexts, sources } = setup(t)
+  for (const pitch of [-1, 128, 60.5, NaN]) await assert.rejects(player.startMelodyNote('finger', pitch), /MIDI pitch/)
+  for (const velocity of [-0.1, 1.1, NaN]) await assert.rejects(player.startMelodyNote('finger', 60, velocity), /velocity/)
+  assert.equal(contexts.length, 0)
+  await player.prepare()
+  for (const [start, duration] of [[-1, 1], [NaN, 1], [0, 0], [0, Infinity]]) {
+    assert.throws(() => player.scheduleMelodyNote('bad', 60, start, duration), /timing/)
+  }
+  player.scheduleMelodyNote('silent', 60, 0, 1, 0)
+  assert.equal(sources.length, 0)
+})
