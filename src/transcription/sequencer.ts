@@ -23,10 +23,11 @@ const browserClock: SequencerClock = {
   clearTimeout: timer => clearTimeout(timer),
 }
 
-type SequencePlayer = Pick<ChordPlayer, 'prepare' | 'play' | 'stop'>
+type SequencePlayer = Pick<ChordPlayer, 'prepare' | 'play' | 'stop' | 'startMetronome' | 'stopMetronome'>
 /** Contiguous held slots share one sound and one absolute audio deadline. */
 type Sound = { midi: number[]; end: number }
 type Slot = { barId: string; chordId: string | null; sound: Sound | null; end: number }
+type Snapshot = { slots: Slot[]; bpm: number; metronome: boolean }
 const idle = (): ChartPlaybackState => ({ playing: false, barId: null, chordId: null, error: null })
 
 /** Play an immutable chart snapshot from a selected bar through its final beat. */
@@ -55,8 +56,9 @@ export class ChartSequencer {
     this.cancel()
     const request = this.request
     try {
-      // Resolve every pitch before awaiting so edits and transposition cannot alter playback.
-      this.slots = snapshot(chart, key, startBarId)
+      // Resolve pitches, tempo and the metronome toggle before awaiting activation.
+      const sequence = snapshot(chart, key, startBarId)
+      this.slots = sequence.slots
       if (!this.slots.length) {
         this.onState(idle())
         return
@@ -69,6 +71,10 @@ export class ChartSequencer {
       if (!this.isCurrent(request)) return
       this.cancelActivation = null
       this.startedAt = this.clock.now()
+      if (sequence.metronome) {
+        // Starts on the first beat, including rests, and follows its own audio clock.
+        this.player.startMetronome(sequence.bpm, this.slots[this.slots.length - 1].end / 1000)
+      }
       this.advance(request)
     } catch (error) {
       this.fail(request, error)
@@ -102,6 +108,7 @@ export class ChartSequencer {
     this.slots = []
     this.currentSlot = -1
     this.currentSound = null
+    this.player.stopMetronome()
     // No release tail may spill into a rest, a replacement, or beyond the chart.
     this.player.stop(true)
   }
@@ -154,7 +161,7 @@ export class ChartSequencer {
   }
 }
 
-function snapshot(chart: Chart, key: number, startBarId?: string): Slot[] {
+function snapshot(chart: Chart, key: number, startBarId?: string): Snapshot {
   if (!Number.isInteger(key) || key < 0 || key > 11) throw new Error('Key must be a whole number from 0 to 11.')
   const first = startBarId === undefined ? 0 : chart.bars.findIndex(bar => bar.id === startBarId)
   if (first < 0) throw new Error('The selected bar is no longer in this chart.')
@@ -198,5 +205,5 @@ function snapshot(chart: Chart, key: number, startBarId?: string): Slot[] {
       })
     })
   })
-  return slots
+  return { slots, bpm, metronome: chart.metronome !== false }
 }

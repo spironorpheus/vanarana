@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { KEYS, QUALITIES, DEFAULT_BPM, MIN_BPM, MAX_BPM, createChart, makeId, degreeName, noteName, chordLabel, chordMidi, parseCharts, serializeCharts, parseBarText, barText, type Chart, type Bar, type Chord, type Quality } from './model'
+import { KEYS, QUALITIES, DEFAULT_BPM, MIN_BPM, MAX_BPM, MAX_BARS_PER_CHART, createChart, makeId, degreeName, noteName, chordLabel, chordMidi, parseCharts, serializeCharts, parseBarText, barText, type Chart, type Bar, type Chord, type Quality } from './model'
 import { ChordPlayer } from './player'
 import { ChartSequencer, type SequenceState } from './sequencer'
 import './transcription.css'
@@ -10,6 +10,20 @@ function initialData(): { charts: Chart[]; error: string } {
   try { const raw = localStorage.getItem(STORAGE); return { charts: raw ? parseCharts(raw) : [], error: '' } }
   catch { return { charts: [], error: 'Saved transcriptions could not be read. Export any new work before leaving this page.' } }
 }
+/** Retain a working trailing block; never remove the cell currently being edited. */
+function trimTrailingBars(chart: Chart, protectedId: string | null): Chart {
+  let end = chart.bars.length
+  let empty = 0
+  for (let index = end - 1; index >= 0; index--) {
+    const bar = chart.bars[index]
+    if (bar.chords.length || bar.section || bar.time) break
+    empty++
+  }
+  const protectedIndex = chart.bars.findIndex(bar => bar.id === protectedId)
+  while (empty >= 16 && end - 8 > protectedIndex) { end -= 8; empty -= 8 }
+  return end === chart.bars.length ? chart : { ...chart, bars: chart.bars.slice(0, end) }
+}
+
 export default function Transcription({ active }: { active: boolean }) {
   const [initial] = useState(initialData)
   const [charts, setCharts] = useState(initial.charts)
@@ -23,7 +37,7 @@ export default function Transcription({ active }: { active: boolean }) {
   const [message, setMessage] = useState(initial.error)
   const [storageFailed, setStorageFailed] = useState(Boolean(initial.error))
   const [audioError, setAudioError] = useState('')
-  const [undo, setUndo] = useState<Chart[] | null>(null)
+  const [emptyBarId, setEmptyBarId] = useState(makeId)
   const [playback, setPlayback] = useState<SequenceState>({ playing: false, barId: null, chordId: null, error: null })
   const sequencer = useRef<ChartSequencer | null>(null)
   const player = useRef<ChordPlayer | null>(null)
@@ -32,10 +46,11 @@ export default function Transcription({ active }: { active: boolean }) {
   const returnFocus = useRef<string | null>(null)
   // A stable ref runs only when the inline field mounts, never on text updates.
   const focusEditor = useCallback((element: HTMLTextAreaElement | null) => {
-    if (element) { element.focus(); element.select() }
+    if (element) { element.focus({ preventScroll: true }); element.select() }
   }, [])
   const chart = charts.find(item => item.id === chartId)
-  const bar = chart?.bars.find(item => item.id === selectedBar)
+  const visibleBars = chart?.bars.length ? chart.bars : [{ id: emptyBarId, chords: [] }]
+  const bar = chart ? visibleBars.find(item => item.id === selectedBar) : undefined
   const key = mode === 'letters' ? targetKey ?? chart?.sourceKey ?? 0 : chart?.sourceKey ?? 0
 
   useEffect(() => {
@@ -62,7 +77,8 @@ export default function Transcription({ active }: { active: boolean }) {
 
   useEffect(() => {
     if (selectedBar === null && returnFocus.current) {
-      barButtons.current.get(returnFocus.current)?.focus()
+      const target = barButtons.current.get(returnFocus.current) ?? [...barButtons.current.values()].at(-1)
+      target?.focus({ preventScroll: true })
       returnFocus.current = null
     }
   }, [selectedBar])
@@ -80,8 +96,35 @@ export default function Transcription({ active }: { active: boolean }) {
     try { serializeCharts(next); stopPlayback(); setCharts(next); return true }
     catch (error) { setMessage(error instanceof Error ? error.message : 'This change exceeds the chart limits.'); return false }
   }
-  const update = (fn: (current: Chart) => Chart) => { setUndo(null); return commitCharts(charts.map(item => item.id === chartId ? fn(item) : item)) }
-  const updateBar = (fn: (current: Bar) => Bar) => update(current => ({ ...current, bars: current.bars.map(item => item.id === selectedBar ? fn(item) : item) }))
+  const update = (fn: (current: Chart) => Chart) => commitCharts(charts.map(item => item.id === chartId ? fn(item) : item))
+  const updateBar = (fn: (current: Bar) => Bar) => {
+    const edited = charts.map(current => {
+      if (current.id !== chartId) return current
+      if (!current.bars.length && selectedBar === emptyBarId) {
+        const first = fn({ id: emptyBarId, chords: [] })
+        return first.chords.length ? { ...current, bars: [first] } : current
+      }
+      return trimTrailingBars({ ...current, bars: current.bars.map(item => item.id === selectedBar ? fn(item) : item) }, selectedBar)
+    })
+    const current = edited.find(item => item.id === chartId)
+    const last = current?.bars.at(-1)
+    if (current && last?.id === selectedBar && last.chords.length > 0) {
+      if (current.bars.length + 8 <= MAX_BARS_PER_CHART) {
+        const expanded = edited.map(item => item.id === chartId
+          ? { ...item, bars: [...item.bars, ...Array.from({ length: 8 }, () => ({ id: makeId(), chords: [] }))] }
+          : item)
+        try {
+          // Check the whole backup too, so auto-growth never rejects an otherwise valid edit.
+          serializeCharts(expanded)
+          return commitCharts(expanded)
+        } catch { /* Save the entered chord even if eight more bars cannot fit. */ }
+      }
+      const saved = commitCharts(edited)
+      if (saved) setMessage('Bar saved. Eight more bars would exceed the chart or backup size limit.')
+      return saved
+    }
+    return commitCharts(edited)
+  }
   const clearDraftWarning = () => setMessage(previous => previous === DRAFT_WARNING ? '' : previous)
   const clearDraft = () => { setDraft(null); setDraftError(''); clearDraftWarning() }
   const canLeaveDraft = () => {
@@ -91,12 +134,16 @@ export default function Transcription({ active }: { active: boolean }) {
   }
   const chooseBar = (id: string | null) => {
     if (!canLeaveDraft()) return
+    if (selectedBar && chart) {
+      const trimmed = trimTrailingBars(chart, id)
+      if (trimmed !== chart) commitCharts(charts.map(item => item.id === chartId ? trimmed : item))
+    }
     if (id === null) returnFocus.current = selectedBar
     setSelectedBar(id); clearDraft()
   }
   const chooseChart = (id: string) => {
     if (!canLeaveDraft()) return
-    setUndo(null); setChartId(id); setSelectedBar(null); clearDraft(); setTargetKey(null); stopPlayback()
+    setEmptyBarId(makeId()); setChartId(id); setSelectedBar(null); clearDraft(); setTargetKey(null); stopPlayback()
   }
   const editBarText = (text: string) => {
     setDraft(text)
@@ -118,12 +165,6 @@ export default function Transcription({ active }: { active: boolean }) {
     audition(value)
     if (bar && canLeaveDraft() && updateBar(current => ({ ...current, chords: [...current.chords, value] }))) clearDraft()
   }
-  const removeBar = () => {
-    if (!canLeaveDraft()) return
-    update(current => ({ ...current, bars: current.bars.filter(item => item.id !== selectedBar) }))
-    setUndo(charts)
-    setSelectedBar(null); clearDraft()
-  }
   const exportFile = () => {
     if (!canLeaveDraft()) return
     const url = URL.createObjectURL(new Blob([serializeCharts(charts)], { type: 'application/json' }))
@@ -141,6 +182,9 @@ export default function Transcription({ active }: { active: boolean }) {
     } catch (error) { setMessage(error instanceof Error ? error.message : 'That backup could not be imported.') }
     if (fileInput.current) fileInput.current.value = ''
   }
+  const renderEntries = (item: Bar, hidden = false) => <span className="tx-bar-entries" aria-hidden={hidden || undefined}>{item.chords.length
+    ? item.chords.flatMap((value, index) => [<span className={playback.chordId === value.id ? 'is-sounding' : ''} key={value.id}>{chordLabel(value, mode, key)}</span>, index < item.chords.length - 1 ? ' ' : ''])
+    : <span className="tx-blank" aria-hidden="true">—</span>}</span>
   return <main className="transcription content">
     <header className="page-heading"><div><p className="eyebrow">Listen · Find · Write</p><h1>Transcription</h1><p className="lede">Build a chord chart, one bar at a time.</p></div></header>
     <div className="tx-library">
@@ -160,21 +204,23 @@ export default function Transcription({ active }: { active: boolean }) {
           {mode === 'letters' && <label className="tx-target-key">Render & play in<select aria-label="Render and play in" value={key} onChange={event => { setTargetKey(Number(event.target.value)); stopPlayback() }}>{KEYS.map((label, index) => <option value={index} key={label}>{label} major</option>)}</select></label>}
         </div>
         <div className="tx-transport" aria-label="Chart playback">
-          <button className="tx-primary tx-play" disabled={!chart.bars.length || Boolean(draftError)} onClick={playback.playing ? stopPlayback : playChart}>{playback.playing ? 'Stop playback' : selectedBar ? `Play from bar ${chart.bars.findIndex(item => item.id === selectedBar) + 1}` : 'Play chart'}</button>
+          <button className="tx-primary tx-play" disabled={!chart.bars.length || Boolean(draftError)} onClick={playback.playing ? stopPlayback : playChart}>{playback.playing ? 'Stop playback' : selectedBar ? `Play from bar ${visibleBars.findIndex(item => item.id === selectedBar) + 1}` : 'Play chart'}</button>
           <label className="tx-tempo">Tempo (BPM)<input aria-label="Tempo (BPM)" type="number" min={MIN_BPM} max={MAX_BPM} step="1" defaultValue={chart.bpm ?? DEFAULT_BPM} key={`${chart.id}:${chart.bpm}`} onBlur={event => {
             const value = Number(event.target.value)
             const bpm = Number.isFinite(value) ? Math.max(MIN_BPM, Math.min(MAX_BPM, Math.round(value))) : DEFAULT_BPM
             event.target.value = String(bpm)
             if (bpm !== (chart.bpm ?? DEFAULT_BPM)) update(current => ({ ...current, bpm }))
           }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>
+          <label className="tx-metronome">Metronome<span><input aria-label="Metronome" type="checkbox" checked={chart.metronome !== false} onChange={event => update(current => ({ ...current, metronome: event.target.checked }))} />{chart.metronome !== false ? 'On' : 'Off'}</span></label>
           {playback.playing && <span className="tx-play-status" aria-live="polite">Playing bar {chart.bars.findIndex(item => item.id === playback.barId) + 1}</span>}
         </div>
         </div>
         {playback.error && <p className="tx-notice" role="alert">{playback.error}</p>}
-        <div className="tx-bars">{chart.bars.map((item, index) => item.id === selectedBar && !playback.playing
+        <div className="tx-bars">{visibleBars.map((item, index) => item.id === selectedBar && !playback.playing
           ? <div className="tx-bar is-selected" key={item.id} aria-label={`Bar ${index + 1} editor`}>
+              {renderEntries(item, true)}
               <textarea ref={focusEditor} aria-label="Bar chord text" aria-describedby={`tx-inline-help${draftError ? ' tx-text-error' : ''}`} aria-invalid={Boolean(draftError)}
-                value={draft ?? barText(item)} onInput={event => editBarText(event.currentTarget.value)} rows={2} maxLength={4096} spellCheck={false} autoCapitalize="off" autoCorrect="off"
+                value={draft ?? barText(item)} onInput={event => editBarText(event.currentTarget.value)} rows={1} maxLength={4096} spellCheck={false} autoCapitalize="off" autoCorrect="off"
                 placeholder="1 . 5/7 6m" onKeyDown={event => {
                   if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Escape') { event.preventDefault(); chooseBar(null) }
                 }} />
@@ -182,19 +228,17 @@ export default function Transcription({ active }: { active: boolean }) {
           : <button className={`tx-bar ${item.id === selectedBar ? 'is-selected' : ''} ${item.id === playback.barId ? 'is-playing' : ''}`} key={item.id}
               ref={element => { if (element) barButtons.current.set(item.id, element); else barButtons.current.delete(item.id) }}
               disabled={playback.playing} aria-label={`Select bar ${index + 1}`} aria-pressed={item.id === selectedBar} onClick={() => chooseBar(item.id)}>
-              <span className="tx-bar-entries">{item.chords.length ? item.chords.map(value => <span className={playback.chordId === value.id ? 'is-sounding' : ''} key={value.id}>{chordLabel(value, mode, key)}</span>) : <span className="tx-blank" aria-hidden="true">—</span>}</span>
+              {renderEntries(item)}
             </button>)}</div>
-        {bar && !playback.playing && <p id="tx-inline-help" className="tx-text-help">Edit in scale degrees: 1 . 5/7 6m. A dot holds the previous chord. Enter to finish.</p>}
+        <p id="tx-inline-help" className="tx-sr-only">Edit in scale degrees: 1 . 5/7 6m. A dot holds the previous chord. Enter to finish.</p>
         {draftError && <p id="tx-text-error" className="tx-text-error" role="alert">{draftError} Last valid bar saved.<button onClick={clearDraft}>Discard unfinished edit</button></p>}
         <div className="tx-chart-actions">
-          <button disabled={playback.playing} onClick={() => update(current => ({ ...current, bars: [...current.bars, { id: makeId(), chords: [] }] }))}>+ Add bar</button>
-          {bar && !playback.playing && <><button onClick={() => chooseBar(null)}>Done editing</button><button onClick={removeBar}>Remove bar</button></>}
-          {undo && <button disabled={playback.playing || Boolean(draftError)} onClick={() => { setCharts(undo); setUndo(null); setSelectedBar(null); clearDraft() }}>Undo removal</button>}
+          <button disabled={!bar || playback.playing} onClick={() => chooseBar(null)}>Done editing</button>
           <span>{storageFailed ? 'Not saved · export a backup' : 'Saved in this browser'}</span>
         </div>
       </section>
     </> : <div className="tx-welcome"><h2>Start with a song title</h2><p>Create a transcription above, or audition chords below.</p></div>}
-    <section className="tx-audition" aria-label="Chord audition grid"><div className="tx-grid-heading"><div><h2>Find a chord</h2><p>{playback.playing ? 'Chart playback is running. Stop to audition or edit chords.' : bar ? `Editing bar ${chart!.bars.indexOf(bar) + 1}: each chord you play is also added.` : 'Audition only. Select a bar to add chords as you play.'}</p></div><button onClick={stopPlayback}>Stop sound</button></div>
+    <section className="tx-audition" aria-label="Chord audition grid"><div className="tx-grid-heading"><div><h2>Find a chord</h2><p>{playback.playing ? 'Chart playback is running. Stop to audition or edit chords.' : bar ? `Editing bar ${visibleBars.indexOf(bar) + 1}: each chord you play is also added.` : 'Audition only. Select a bar to add chords as you play.'}</p></div><button onClick={stopPlayback}>Stop sound</button></div>
       {audioError && <p role="alert" className="tx-notice">{audioError}</p>}
       <div className="tx-grid-scroll"><table className="tx-grid"><thead><tr><th scope="col">Root</th>{QUALITIES.map(q => <th scope="col" key={q.id}>{q.label}</th>)}</tr></thead><tbody>{KEYS.map((_, root) => <tr key={root}><th scope="row">{mode === 'degrees' ? degreeName(root) : noteName(root, key)}</th>{QUALITIES.map(q => { const value = { id: '', root, quality: q.id }; return <td key={q.id}><button disabled={playback.playing} aria-label={`${bar ? 'Play and add' : 'Play'} ${chordLabel(value, mode, key)}`} onClick={() => addChord(root, q.id)}>{chordLabel(value, mode, key)}</button></td> })}</tr>)}</tbody></table></div>
       <p className="tx-footnote">Grid chords use root position. Audio follows {KEYS[key]} major. Play your reference track separately.</p>

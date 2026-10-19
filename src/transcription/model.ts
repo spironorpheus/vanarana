@@ -22,6 +22,7 @@ export interface Chart {
   name: string
   sourceKey: number
   bpm?: number
+  metronome?: boolean
   bars: Bar[]
 }
 
@@ -212,6 +213,10 @@ function validateCharts(value: unknown): Chart[] {
     if (input.bpm !== undefined) {
       if (typeof input.bpm !== 'number' || !Number.isInteger(input.bpm) || input.bpm < MIN_BPM || input.bpm > MAX_BPM) throw new Error(`Tempo must be a whole number from ${MIN_BPM} to ${MAX_BPM} BPM.`)
       chart.bpm = input.bpm
+    }
+    if (input.metronome !== undefined) {
+      if (typeof input.metronome !== 'boolean') throw new Error('Metronome must be on or off.')
+      chart.metronome = input.metronome
     }
     chart.bars = list(input.bars, `${label} bars`, MAX_BARS_PER_CHART).map((barValue, barIndex) => {
       const barLabel = `${label}, bar ${barIndex + 1}`

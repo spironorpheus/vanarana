@@ -12,18 +12,30 @@ const flush = () => new Promise(resolve => setImmediate(resolve))
 
 function setup(t, options = {}) {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
-  const window = {}
+  const window = { location: { href: 'https://test.example/chords/', origin: 'https://test.example' } }
   Object.defineProperty(globalThis, 'window', { configurable: true, value: window })
-  const audio = installAudioMock(window, options)
+  const audio = installAudioMock(window, {
+    ...options,
+    fetch: options.fetch ?? (async url => ({ ok: true, status: 200,
+      arrayBuffer: async () => new Uint8Array([Number(new URL(url).pathname.match(/0-(\d+)\.wav$/)?.[1] ?? 60)]).buffer })),
+    decode: options.decode ?? (bytes => ({ duration: 4, midi: new Uint8Array(bytes)[0] })),
+  })
   const Context = window.AudioContext || window.webkitAudioContext
   // Extend the shared observable double locally; other feature tests are unchanged.
+  const param = () => ({ events: [], setValueAtTime(value, time) { this.events.push(['set', value, time]) } })
+  const createBufferSource = Context.prototype.createBufferSource
+  Context.prototype.createBufferSource = function () {
+    if (options.createBufferSource) options.createBufferSource()
+    const source = createBufferSource.call(this)
+    source.kind = 'piano'
+    source.playbackRate = param()
+    return source
+  }
   Context.prototype.createOscillator = function () {
     if (options.createOscillator) options.createOscillator()
-    const source = this.createBufferSource()
-    source.frequency = {
-      events: [],
-      setValueAtTime(value, time) { this.events.push(['set', value, time]) },
-    }
+    const source = createBufferSource.call(this)
+    source.kind = 'click'
+    source.frequency = param()
     return source
   }
   const createGain = Context.prototype.createGain
@@ -33,7 +45,7 @@ function setup(t, options = {}) {
     gain.gain.cancelScheduledValues = function (time) { this.events.push(['cancel', time]) }
     return gain
   }
-  const player = new ChordPlayer()
+  const player = new ChordPlayer(options.manifest)
   t.after(() => {
     player.dispose()
     audio.restore()
@@ -43,7 +55,7 @@ function setup(t, options = {}) {
   return { ...audio, audio, player, window }
 }
 
-test('audition creates/resumes synchronously, uses exact pitches, and needs no assets', async t => {
+test('audition creates/resumes synchronously and plays exact bundled piano samples', async t => {
   const { player, contexts, sources, gains, fetches } = setup(t)
   assert.equal(contexts.length, 0)
   const playing = player.play([60, 64, 67, 60])
@@ -52,10 +64,12 @@ test('audition creates/resumes synchronously, uses exact pitches, and needs no a
   assert.equal(sources.length, 0)
   await playing
   assert.equal(sources.length, 3, 'duplicate MIDI pitches are not layered')
-  assert.equal(fetches.length, 0)
+  assert.equal(fetches.length, 3)
   sources.forEach((source, i) => {
-    assert.equal(source.type, 'triangle')
-    assert.equal(source.frequency.events[0][1], 440 * 2 ** (([60, 64, 67][i] - 69) / 12))
+    assert.equal(source.kind, 'piano')
+    assert.equal(source.loop, false)
+    assert.equal(source.buffer.midi, [60, 64, 67][i])
+    assert.equal(source.playbackRate.events[0][1], 1)
     assert.equal(source.starts[0].when, 0)
     assert.equal(source.stops[0], 1.4)
     assert.deepEqual(gains[i].gain.events.at(-1), ['ramp', 0, 1.4])
@@ -77,7 +91,8 @@ test('a newer click wins while prior resume remains pending, including stale rej
   second.resolve()
   await latest
   assert.equal(sources.length, 1)
-  assert.equal(sources[0].frequency.events[0][1], 440)
+  assert.equal(sources[0].buffer.midi, 69)
+  assert.equal(sources[0].playbackRate.events[0][1], 1)
   first.reject(new Error('An obsolete activation failed'))
   await flush()
   assert.equal(sources.length, 1)
@@ -120,7 +135,7 @@ test('rapid replacements release old chords without extending their tails', asyn
   assert.ok(gains.every(gain => gain.disconnected))
 })
 
-test('natural completion disconnects every oscillator and gain', async t => {
+test('natural completion disconnects every sample source and gain', async t => {
   const { player, audio, sources, gains } = setup(t)
   await player.play([48, 60, 64, 67])
   audio.advance(1.5)
@@ -203,7 +218,8 @@ test('input mutation during activation does not change the requested pitches', a
   contexts[0].state = 'running'
   pending.resolve()
   await playing
-  assert.equal(sources[0].frequency.events[0][1], 440)
+  assert.equal(sources[0].buffer.midi, 69)
+  assert.equal(sources[0].playbackRate.events[0][1], 1)
 })
 
 test('partial scheduling failure cleans already-created nodes and permits retry', async t => {
@@ -237,11 +253,11 @@ test('prepare activates synchronously without notes and cancellation suppresses 
   assert.equal(sources.length, 1)
 })
 
-test('sequence durations sustain to a bounded release and never extend on stop', async t => {
+test('sequence durations have a bounded release and never extend on stop', async t => {
   const { player, audio, sources, gains } = setup(t)
   await player.play([60], { durationSeconds: 4 })
   assert.equal(sources[0].stops[0], 4)
-  assert.deepEqual(gains[0].gain.events.at(-2), ['set', 0.3 * 0.55, 3.965])
+  assert.deepEqual(gains[0].gain.events.at(-2), ['set', 0.65, 3.965])
   assert.deepEqual(gains[0].gain.events.at(-1), ['ramp', 0, 4])
   audio.advance(3.99)
   player.stop()
@@ -264,4 +280,338 @@ test('immediate stop cuts every voice without a release tail and invalid duratio
   player.stop(true)
   assert.ok(sources.every(source => source.stopped && source.disconnected && source.stops.at(-1) === undefined))
   assert.ok(gains.every(gain => gain.disconnected))
+})
+
+test('nearest piano samples preserve arbitrary key and bass pitches with playbackRate', async t => {
+  const { player, sources, fetches } = setup(t)
+  const notes = [0, 36, 41, 48, 53, 58, 60, 66, 71, 76, 127]
+  const expectedSamples = [40, 40, 40, 47, 52, 57, 60, 66, 71, 75, 75]
+  await player.play(notes)
+  assert.equal(fetches.length, new Set(expectedSamples).size, 'a sample shared by several pitches loads once')
+  sources.forEach((source, i) => {
+    assert.equal(source.buffer.midi, expectedSamples[i])
+    assert.equal(source.playbackRate.events[0][1], 2 ** ((notes[i] - expectedSamples[i]) / 12))
+    assert.equal(source.loop, false)
+  })
+})
+
+test('prepare preloads the entire existing piano bank and subsequent chords schedule synchronously', async t => {
+  const { player, contexts, sources, fetches } = setup(t)
+  const prepared = player.prepare()
+  assert.equal(contexts[0].resumeCalls, 1)
+  assert.equal(sources.length, 0)
+  await prepared
+  assert.equal(fetches.length, 26)
+  assert.equal(contexts[0].decodeCalls, 26)
+  assert.ok(fetches.every(({ url, init }) => new URL(url).pathname.startsWith('/audio/instruments/0-') &&
+    init.credentials === 'same-origin' && init.redirect === 'error'))
+  contexts[0].currentTime = 7
+  const playing = player.play([0, 36, 54, 60, 76, 127], { durationSeconds: 2 })
+  assert.equal(sources.length, 6, 'prepared playback schedules before returning, without a microtask delay')
+  assert.ok(sources.every(source => source.starts[0].when === 7))
+  await playing
+  await player.prepare()
+  assert.equal(fetches.length, 26, 'successful samples are reused for later charts and auditions')
+})
+
+test('prepare does not resolve until its last sample is decoded', async t => {
+  const pending = deferred()
+  const { player, contexts, sources } = setup(t, {
+    manifest: { '0:60': '/chords/audio/instruments/0-60.wav' }, decode: () => pending.promise,
+  })
+  let ready = false
+  const prepared = player.prepare().then(() => { ready = true })
+  await flush()
+  assert.equal(contexts[0].decodeCalls, 1)
+  assert.equal(ready, false)
+  assert.equal(sources.length, 0)
+  contexts[0].currentTime = 5
+  pending.resolve({ duration: 2.5 })
+  await prepared
+  const playing = player.play([63])
+  assert.equal(sources.length, 1)
+  assert.equal(sources[0].starts[0].when, 5)
+  await playing
+})
+
+test('local subpath sample URLs are preserved and remote, redirected, or missing assets fail safely', async t => {
+  const { player, fetches } = setup(t, { manifest: { '0:60': '/chords/audio/instruments/0-60.wav' } })
+  await player.play([60])
+  assert.equal(fetches[0].url, 'https://test.example/chords/audio/instruments/0-60.wav')
+  for (const manifest of [
+    { '0:60': 'https://other.example/0-60.wav' },
+    { '0:60': 'data:audio/wav;base64,AAAA' },
+    { '0:60': 'file:///0-60.wav' },
+  ]) {
+    const unsafe = new ChordPlayer(manifest)
+    await assert.rejects(unsafe.play([60]), /hosted with this app/)
+    unsafe.dispose()
+  }
+  for (const manifest of [{}, { '40:60': '/audio/40-60.wav' }, { '0:60': '' }]) {
+    const missing = new ChordPlayer(manifest)
+    await assert.rejects(missing.play([60]), /piano sample is missing/)
+    await assert.rejects(missing.prepare(), /piano sample is missing/)
+    missing.dispose()
+  }
+  assert.equal(fetches.length, 1, 'untrusted or missing sample paths never reach fetch')
+})
+
+test('fetch failure aborts the current bank load and can be retried', async t => {
+  let failed = true
+  const { player, fetches, sources } = setup(t, { fetch: async () => failed
+    ? { ok: false, status: 404 }
+    : { ok: true, arrayBuffer: async () => new ArrayBuffer(1) } })
+  await assert.rejects(player.play([60]), /piano sample could not load.*try playing again/)
+  assert.equal(fetches[0].init.signal.aborted, true)
+  assert.equal(sources.length, 0)
+  failed = false
+  await player.play([60])
+  assert.equal(fetches.length, 2)
+  assert.equal(sources.length, 1)
+})
+
+test('decoder failures and empty samples are retryable, including callback-only Safari decode', async t => {
+  let result = 'reject'
+  const { player, contexts, sources, fetches } = setup(t, { callbackDecode: true, decode: () => {
+    if (result === 'reject') throw new Error('Unsupported WAV')
+    return { duration: result === 'empty' ? 0 : 4 }
+  } })
+  await assert.rejects(player.play([60]), /piano sample could not load/)
+  result = 'empty'
+  await assert.rejects(player.play([60]), /piano sample could not load/)
+  result = 'okay'
+  await player.play([60])
+  assert.equal(contexts[0].decodeCalls, 3)
+  assert.equal(fetches.length, 3)
+  assert.equal(sources.length, 1)
+})
+
+test('a newer play aborts a pending fetch and stale responses cannot start or cache audio', async t => {
+  const pending = deferred()
+  let first = true
+  const { player, sources, contexts, fetches } = setup(t, { fetch: async url => {
+    if (first) { first = false; return pending.promise }
+    return { ok: true, arrayBuffer: async () => new Uint8Array([Number(new URL(url).pathname.match(/0-(\d+)\.wav$/)[1])]).buffer }
+  } })
+  const stale = player.play([60])
+  const latest = player.play([69])
+  await stale
+  assert.equal(fetches[0].init.signal.aborted, true)
+  await latest
+  assert.equal(sources.length, 1)
+  assert.equal(sources[0].buffer.midi, 69)
+  pending.resolve({ ok: true, arrayBuffer: async () => { throw new Error('Stale response must not be read') } })
+  await flush()
+  assert.equal(contexts[0].decodeCalls, 1)
+  await player.play([60])
+  assert.equal(fetches.length, 3, 'the abandoned sample is fetched again')
+  assert.equal(sources.at(-1).buffer.midi, 60)
+})
+
+test('stop cancels response-body loading promptly and retry remains available', async t => {
+  const body = deferred()
+  let first = true
+  const { player, contexts, sources, fetches } = setup(t, { fetch: async () => ({ ok: true,
+    arrayBuffer: () => { if (first) { first = false; return body.promise }; return Promise.resolve(new ArrayBuffer(1)) },
+  }) })
+  const playing = player.play([60])
+  await flush()
+  player.stop(true)
+  await playing
+  body.reject(new Error('Obsolete body'))
+  await flush()
+  assert.equal(contexts[0].decodeCalls, 0)
+  assert.equal(sources.length, 0)
+  await player.play([60])
+  assert.equal(fetches.length, 2)
+  assert.equal(sources.length, 1)
+})
+
+test('cancelled decode cannot populate cache or start a superseded chord', async t => {
+  const pending = deferred()
+  let calls = 0
+  const { player, sources, fetches } = setup(t, { decode: () => ++calls === 1 ? pending.promise : { duration: 4 } })
+  const stale = player.play([60])
+  await flush()
+  const latest = player.play([69])
+  await stale
+  await latest
+  assert.equal(sources.length, 1)
+  pending.resolve({ duration: 100 })
+  await flush()
+  await player.play([60])
+  assert.equal(fetches.length, 3)
+  assert.equal(sources.at(-1).buffer.duration, 4)
+})
+
+test('dispose during bank decoding settles prepare promptly and ignores late rejection', async t => {
+  const pending = deferred()
+  const { player, contexts, sources, fetches } = setup(t, { decode: () => pending.promise })
+  const prepared = player.prepare()
+  await flush()
+  player.dispose()
+  await prepared
+  assert.ok(fetches.every(fetch => fetch.init.signal.aborted))
+  pending.reject(new Error('Obsolete decoder'))
+  await flush()
+  assert.equal(contexts[0].closeCalls, 1)
+  assert.equal(sources.length, 0)
+  await player.prepare()
+  assert.equal(contexts.length, 1)
+})
+
+test('loading timeout cancels fetches, reports a retryable error, and does not poison the next attempt', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let stuck = true
+  const { player, fetches, sources } = setup(t, { fetch: () => stuck ? new Promise(() => {}) :
+    Promise.resolve({ ok: true, arrayBuffer: async () => new ArrayBuffer(1) }) })
+  const playing = player.play([60])
+  const rejected = assert.rejects(playing, /could not load.*try playing again/)
+  t.mock.timers.tick(20000)
+  await rejected
+  assert.equal(fetches[0].init.signal.aborted, true)
+  assert.equal(sources.length, 0)
+  stuck = false
+  await player.play([60])
+  assert.equal(sources.length, 1)
+})
+
+test('long held chords use one naturally decaying sample and pitched samples cannot exceed the deadline', async t => {
+  const { player, audio, sources, gains } = setup(t, { decode: bytes => ({ duration: 2.5, midi: new Uint8Array(bytes)[0] }) })
+  await player.play([60], { durationSeconds: 30 })
+  assert.equal(sources.length, 1)
+  assert.equal(sources[0].loop, false)
+  assert.equal(sources[0].stops[0], 2.5)
+  audio.advance(10)
+  assert.equal(sources.length, 1, 'a hold never retriggers the sample')
+  assert.equal(sources[0].disconnected, true)
+  await player.play([36], { durationSeconds: 0.2 })
+  assert.equal(sources[1].stops[0], 10.2)
+  assert.deepEqual(gains[1].gain.events.at(-1), ['ramp', 0, 10.2])
+})
+
+test('options are snapshotted before loading just like chord pitches', async t => {
+  const pending = deferred()
+  const { player, contexts, sources, gains } = setup(t, { resume: () => pending.promise })
+  const options = { durationSeconds: 2 }
+  const playing = player.play([60], options)
+  options.durationSeconds = undefined
+  contexts[0].state = 'running'
+  pending.resolve()
+  await playing
+  assert.equal(sources[0].stops[0], 2)
+  assert.deepEqual(gains[0].gain.events.at(-2), ['set', 0.65, 1.965])
+})
+
+test('metronome requires prepared audio and never starts during an audition', async t => {
+  const { player, contexts, sources } = setup(t)
+  assert.throws(() => player.startMetronome(120, 4), /browser paused audio/)
+  assert.equal(contexts.length, 0)
+  await player.play([60])
+  assert.ok(sources.every(source => source.kind === 'piano'))
+  for (const bpm of [0, -1, NaN, Infinity, 10000]) assert.throws(() => player.startMetronome(bpm, 4), /invalid/)
+  for (const duration of [0, -1, NaN, Infinity]) assert.throws(() => player.startMetronome(120, duration), /invalid/)
+})
+
+test('metronome schedules bounded lookahead quarter-note clicks and accents each first beat of four', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  const { player, audio, sources, gains } = setup(t)
+  await player.prepare()
+  player.startMetronome(120, 4)
+  assert.equal(sources.length, 1, 'only the short lookahead is scheduled at startup')
+  for (let step = 0; step < 80; step++) {
+    audio.advance(0.05)
+    t.mock.timers.tick(50)
+  }
+  assert.equal(sources.length, 8)
+  assert.deepEqual(sources.map(source => source.starts[0].when), [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5])
+  assert.deepEqual(sources.map(source => source.frequency.events[0][1]), [1320, 880, 880, 880, 1320, 880, 880, 880])
+  assert.deepEqual(gains.map(gain => gain.gain.events[1][1]), [0.18, 0.1, 0.1, 0.1, 0.18, 0.1, 0.1, 0.1])
+  assert.ok(sources.every(source => source.stops[0] <= 4 && source.disconnected))
+  audio.advance(1)
+  t.mock.timers.tick(1000)
+  assert.equal(sources.length, 8, 'the metronome ends at its chart duration')
+})
+
+test('metronome keeps beat one even if the audio clock advances during start', async t => {
+  const { player, contexts, sources } = setup(t)
+  await player.prepare()
+  let now = 10
+  Object.defineProperty(contexts[0], 'currentTime', { configurable: true, get() { const value = now; now += 0.0001; return value } })
+  player.startMetronome(120, 4)
+  assert.equal(sources.length, 1)
+  assert.equal(sources[0].starts[0].when, 10)
+  assert.equal(sources[0].frequency.events[0][1], 1320)
+})
+
+test('chord replacements and rests do not cancel metronome; explicit off cancels future clicks immediately', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  const { player, audio, sources } = setup(t)
+  await player.prepare()
+  player.startMetronome(120, 10)
+  const firstClick = sources[0]
+  await player.play([60])
+  player.stop(true)
+  assert.equal(firstClick.disconnected, false)
+  audio.advance(0.45)
+  t.mock.timers.tick(450)
+  const nextClick = sources.at(-1)
+  assert.equal(nextClick.kind, 'click')
+  assert.equal(nextClick.starts[0].when, 0.5)
+  player.stopMetronome()
+  assert.equal(nextClick.stops.at(-1), undefined)
+  assert.equal(nextClick.disconnected, true)
+  const count = sources.length
+  audio.advance(10)
+  t.mock.timers.tick(10000)
+  assert.equal(sources.length, count)
+  await player.play([64])
+  assert.equal(sources.at(-1).kind, 'piano', 'turning clicks off leaves the piano usable')
+})
+
+test('metronome skips throttled beats without bursts and retains bar accents', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  const { player, audio, sources } = setup(t)
+  await player.prepare()
+  player.startMetronome(120, 10)
+  audio.advance(3.95)
+  t.mock.timers.tick(25)
+  assert.equal(sources.length, 2)
+  assert.equal(sources[1].starts[0].when, 4)
+  assert.equal(sources[1].frequency.events[0][1], 1320)
+})
+
+test('metronome clips its final click and disposal stops scheduled clicks and timers', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  const { player, audio, sources, gains } = setup(t)
+  await player.prepare()
+  player.startMetronome(120, 0.51)
+  audio.advance(0.45)
+  t.mock.timers.tick(450)
+  assert.equal(sources.length, 2)
+  assert.equal(sources[1].starts[0].when, 0.5)
+  assert.equal(sources[1].stops[0], 0.51)
+  assert.deepEqual(gains[1].gain.events.at(-1), ['ramp', 0, 0.51])
+  player.dispose()
+  assert.ok(sources.every(source => source.disconnected && source.onended === null))
+  assert.ok(gains.every(gain => gain.disconnected))
+  audio.advance(2)
+  t.mock.timers.tick(2000)
+  player.startMetronome(120, 4)
+  assert.equal(sources.length, 2)
+})
+
+test('context interruption stops both piano and metronome until explicit restart', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  const { player, contexts, sources } = setup(t)
+  await player.prepare()
+  player.startMetronome(120, 10)
+  await player.play([60])
+  contexts[0].state = 'suspended'
+  contexts[0].onstatechange()
+  assert.ok(sources.every(source => source.disconnected))
+  t.mock.timers.tick(10000)
+  assert.equal(sources.length, 2)
+  await player.play([64])
+  assert.equal(sources.at(-1).kind, 'piano')
 })

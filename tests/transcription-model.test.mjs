@@ -266,3 +266,11 @@ test('tempo is optional for old charts and round-trips with validated bounds', (
   for (const bpm of [40, 120, 240]) assert.equal(parseCharts(serializeCharts([{ ...chart, bpm }]))[0].bpm, bpm)
   for (const bpm of [0, 39, 241, 100.5, NaN, Infinity, '120']) assert.throws(() => serializeCharts([{ ...chart, bpm }]), /Tempo/)
 })
+
+
+test('metronome is optional for old charts and round-trips boolean settings only', () => {
+  const chart = createChart('Metronome')
+  assert.equal(parseCharts(serializeCharts([chart]))[0].metronome, undefined)
+  for (const metronome of [true, false]) assert.equal(parseCharts(serializeCharts([{ ...chart, metronome }]))[0].metronome, metronome)
+  for (const metronome of [0, 1, 'false', null]) assert.throws(() => serializeCharts([{ ...chart, metronome }]), /Metronome/)
+})

@@ -45,7 +45,7 @@ function setup(t, options = {}) {
       }
     },
   }
-  const played = [], stopped = [], prepared = [], states = []
+  const played = [], stopped = [], prepared = [], states = [], metronomeStarted = [], metronomeStopped = []
   let disposeCalls = 0
   const player = {
     prepare() { prepared.push(now); return options.prepare?.() ?? Promise.resolve() },
@@ -54,12 +54,95 @@ function setup(t, options = {}) {
       return options.play?.(midi, playback) ?? Promise.resolve()
     },
     stop(immediate) { stopped.push({ at: now, immediate }) },
+    startMetronome(bpm, durationSeconds) {
+      metronomeStarted.push({ at: now, bpm, durationSeconds })
+      options.startMetronome?.(bpm, durationSeconds)
+    },
+    stopMetronome() { metronomeStopped.push({ at: now }) },
     dispose() { disposeCalls++ },
   }
   const sequencer = new ChartSequencer(player, state => { states.push(state); options.onState?.(state) }, clock)
   t.after(() => sequencer.dispose())
-  return { sequencer, clock, timers, player, played, stopped, prepared, states, disposeCalls: () => disposeCalls }
+  return { sequencer, clock, timers, player, played, stopped, prepared, states, metronomeStarted, metronomeStopped, disposeCalls: () => disposeCalls }
 }
+
+test('constructing a sequencer and independently auditioning a chord never starts its metronome', async t => {
+  const { player, prepared, metronomeStarted, metronomeStopped, states, timers } = setup(t)
+  assert.deepEqual(prepared, [])
+  assert.deepEqual(metronomeStarted, [])
+  assert.deepEqual(metronomeStopped, [])
+  await player.play([60, 64, 67])
+  assert.deepEqual(metronomeStarted, [])
+  assert.deepEqual(states, [])
+  assert.equal(timers.size, 0)
+})
+
+test('metronome defaults on and starts without a count-in for exactly the selected remaining bars', async t => {
+  const { sequencer, clock, played, metronomeStarted, metronomeStopped } = setup(t)
+  await sequencer.play(chart([
+    { id: 'skip', chords: [chord('skip1')] },
+    { id: 'selected', chords: [chord('s1'), hold('s2'), chord('s3', 7)] },
+    { id: 'rest', chords: [] },
+    { id: 'held', chords: [hold('h1')] },
+  ], 80), 0, 'selected')
+  assert.deepEqual(metronomeStarted, [{ at: 0, bpm: 80, durationSeconds: 9 }])
+  assert.equal(played[0].at, 0, 'first harmony begins on the first click')
+  const initialStops = metronomeStopped.length
+  clock.tick(8999)
+  assert.equal(metronomeStarted.length, 1, 'chords, holds, and rests share one continuous beat track')
+  assert.equal(metronomeStopped.length, initialStops, 'chord stops do not stop the beat track')
+  clock.tick(1)
+  assert.deepEqual(metronomeStopped.at(-1), { at: 9000 })
+  assert.equal(metronomeStopped.length, initialStops + 1)
+})
+
+test('an explicitly enabled metronome also starts for a selected silent bar', async t => {
+  const { sequencer, played, metronomeStarted } = setup(t)
+  await sequencer.play({ ...chart([
+    { id: 'skip', chords: [chord('skip1')] },
+    { id: 'rest', chords: [] },
+    { id: 'held', chords: [hold('h1')] },
+  ], 60), metronome: true }, 0, 'rest')
+  assert.deepEqual(metronomeStarted, [{ at: 0, bpm: 60, durationSeconds: 8 }])
+  assert.deepEqual(played, [])
+})
+
+test('a disabled metronome stays disabled if the chart changes during activation or playback', async t => {
+  const activation = deferred()
+  const { sequencer, clock, played, metronomeStarted } = setup(t, { prepare: () => activation.promise })
+  const input = { ...chart([{ id: 'a', chords: [chord('a1'), chord('a2')] }]), metronome: false }
+  const playing = sequencer.play(input, 0)
+  input.metronome = true
+  activation.resolve()
+  await playing
+  clock.tick(2000)
+  assert.equal(played.length, 2)
+  assert.deepEqual(metronomeStarted, [])
+})
+
+test('replacing active playback with a disabled chart stops the existing metronome', async t => {
+  const { sequencer, clock, metronomeStarted, metronomeStopped } = setup(t)
+  const input = chart([{ id: 'a', chords: [chord('a1')] }])
+  await sequencer.play(input, 0)
+  clock.tick(250)
+  await sequencer.play({ ...input, metronome: false }, 0)
+  assert.deepEqual(metronomeStarted, [{ at: 0, bpm: 120, durationSeconds: 2 }])
+  assert.deepEqual(metronomeStopped, [{ at: 0 }, { at: 250 }])
+  sequencer.dispose()
+  assert.deepEqual(metronomeStopped.at(-1), { at: 250 })
+  assert.equal(metronomeStopped.length, 3)
+})
+
+test('a metronome startup error cancels playback and clears its pending beat track', async t => {
+  const { sequencer, played, states, timers, metronomeStopped } = setup(t, {
+    startMetronome: () => { throw new Error('Metronome unavailable') },
+  })
+  await sequencer.play(chart([{ id: 'a', chords: [chord('a1')] }]), 0)
+  assert.deepEqual(states.at(-1), { ...idle, error: 'Metronome unavailable' })
+  assert.deepEqual(played, [])
+  assert.equal(timers.size, 0)
+  assert.equal(metronomeStopped.length, 2)
+})
 
 test('default timing divides four beats equally and ends with no note tail', async t => {
   const { sequencer, clock, played, stopped, states, timers } = setup(t)
@@ -113,26 +196,30 @@ test('a rest after a chord immediately silences it and clears the active chord',
 })
 
 test('tempo is bounded defensively and non-finite tempo falls back to 120', async t => {
-  const { sequencer, played } = setup(t)
-  for (const [bpm, seconds] of [[40, 6], [240, 1], [1, 6], [1000, 1], [NaN, 2], [Infinity, 2]]) {
+  const { sequencer, played, metronomeStarted } = setup(t)
+  for (const [bpm, boundedBpm, seconds] of [[40, 40, 6], [240, 240, 1], [1, 40, 6], [1000, 240, 1], [NaN, 120, 2], [Infinity, 120, 2]]) {
     await sequencer.play(chart([{ id: 'a', chords: [chord('a1')] }], bpm), 0)
     assert.equal(played.at(-1).durationSeconds, seconds)
+    assert.deepEqual(metronomeStarted.at(-1), { at: 0, bpm: boundedBpm, durationSeconds: seconds })
   }
 })
 
-test('chart contents, tempo and selected key are snapshotted before pending activation', async t => {
+test('chart contents, tempo, metronome and selected key are snapshotted before pending activation', async t => {
   const activation = deferred()
-  const { sequencer, clock, played, states } = setup(t, { prepare: () => activation.promise })
+  const { sequencer, clock, played, states, metronomeStarted } = setup(t, { prepare: () => activation.promise })
   const input = chart([{ id: 'a', chords: [chord('a1'), chord('a2', 7)] }], 120)
   const playing = sequencer.play(input, 2)
   input.bpm = 40
+  input.metronome = false
   input.bars[0].id = 'changed'
   input.bars[0].chords[1].root = 0
   input.bars[0].chords[1].id = 'changed-chord'
   input.bars.push({ id: 'new', chords: [chord('new1')] })
   clock.jump(500)
+  assert.deepEqual(metronomeStarted, [], 'metronome waits for activation')
   activation.resolve()
   await playing
+  assert.deepEqual(metronomeStarted, [{ at: 500, bpm: 120, durationSeconds: 2 }])
   assert.deepEqual(played[0], { at: 500, midi: [62, 66, 69], durationSeconds: 1 })
   clock.tick(1000)
   assert.deepEqual(played[1], { at: 1500, midi: [69, 73, 76], durationSeconds: 1 })
@@ -164,8 +251,9 @@ test('late timers skip elapsed chords and retain original deadlines without drif
 
 test('stop resolves pending activation immediately and late resolution cannot restart audio', async t => {
   const activation = deferred()
-  const { sequencer, clock, played, states, timers } = setup(t, { prepare: () => activation.promise })
+  const { sequencer, clock, played, states, timers, metronomeStarted, metronomeStopped } = setup(t, { prepare: () => activation.promise })
   const playing = sequencer.play(chart([{ id: 'a', chords: [chord('a1')] }]), 0)
+  const stopsBeforeCancel = metronomeStopped.length
   sequencer.stop()
   await playing
   assert.deepEqual(states.at(-1), idle)
@@ -174,14 +262,16 @@ test('stop resolves pending activation immediately and late resolution cannot re
   clock.tick(20_000)
   assert.equal(played.length, 0)
   assert.equal(timers.size, 0)
+  assert.deepEqual(metronomeStarted, [])
+  assert.equal(metronomeStopped.length, stopsBeforeCancel + 1)
 })
 
 test('newest play wins during activation and obsolete rejection cannot stop it', async t => {
   const first = deferred(), second = deferred()
   let calls = 0
-  const { sequencer, clock, played, states } = setup(t, { prepare: () => ++calls === 1 ? first.promise : second.promise })
+  const { sequencer, clock, played, states, metronomeStarted, metronomeStopped } = setup(t, { prepare: () => ++calls === 1 ? first.promise : second.promise })
   const old = sequencer.play(chart([{ id: 'old', chords: [chord('old1')] }]), 0)
-  const latest = sequencer.play(chart([{ id: 'latest', chords: [chord('new1', 9)] }]), 0)
+  const latest = sequencer.play(chart([{ id: 'latest', chords: [chord('new1', 9)] }], 240), 0)
   await old
   second.resolve()
   await latest
@@ -190,8 +280,11 @@ test('newest play wins during activation and obsolete rejection cannot stop it',
   assert.deepEqual(played.map(call => call.midi), [[69, 73, 76]])
   assert.equal(states.at(-1).barId, 'latest')
   assert.equal(states.at(-1).error, null)
-  clock.tick(2000)
+  assert.deepEqual(metronomeStarted, [{ at: 0, bpm: 240, durationSeconds: 1 }])
+  assert.equal(metronomeStopped.length, 2, 'each play cancels any earlier metronome')
+  clock.tick(1000)
   assert.deepEqual(states.at(-1), idle)
+  assert.equal(metronomeStopped.length, 3)
 })
 
 test('stop cancels queued transitions and repeated play starts a fresh timeline', async t => {
@@ -213,7 +306,7 @@ test('stop cancels queued transitions and repeated play starts a fresh timeline'
 
 test('dispose cancels activation and timers without disposing the shared player', async t => {
   const activation = deferred()
-  const { sequencer, clock, played, states, prepared, disposeCalls, timers } = setup(t, { prepare: () => activation.promise })
+  const { sequencer, clock, played, states, prepared, disposeCalls, timers, metronomeStarted, metronomeStopped } = setup(t, { prepare: () => activation.promise })
   const input = chart([{ id: 'a', chords: [chord('a1')] }])
   const playing = sequencer.play(input, 0)
   sequencer.dispose()
@@ -229,10 +322,12 @@ test('dispose cancels activation and timers without disposing the shared player'
   assert.equal(played.length, 0)
   assert.equal(timers.size, 0)
   assert.deepEqual(states.at(-1), idle)
+  assert.deepEqual(metronomeStarted, [])
+  assert.equal(metronomeStopped.length, 2, 'play and dispose each cancel once; repeated disposal is inert')
 })
 
 test('invalid key or missing selected bar reports an error before opening audio', async t => {
-  const { sequencer, prepared, states } = setup(t)
+  const { sequencer, prepared, states, metronomeStarted } = setup(t)
   const input = chart([{ id: 'a', chords: [chord('a1')] }])
   await sequencer.play(input, 12)
   assert.match(states.at(-1).error, /Key/)
@@ -244,6 +339,7 @@ test('invalid key or missing selected bar reports an error before opening audio'
   await sequencer.play(chart([]), 0)
   assert.deepEqual(states.at(-1), idle)
   assert.equal(prepared.length, 0)
+  assert.deepEqual(metronomeStarted, [])
 })
 
 test('activation errors and current note errors stop playback and clear all timers', async t => {
